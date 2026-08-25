@@ -7,9 +7,12 @@ import type { Categoria, Modalidad, RegistroSalida, Territorio } from "./types/d
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const HOY = new Date("2026-08-24T12:00:00");
-const PAGE_WIDTH = 4918;
-const PAGE_HEIGHT = 2474;
-const MAP_IMAGE = `${import.meta.env.BASE_URL}mapa-territorios.png`;
+const GEO_BOUNDS = {
+  north: -31.385,
+  south: -31.478,
+  west: -62.137,
+  east: -62.027,
+};
 type Panel = "mapa" | "estadisticas" | "planificacion" | "informe";
 type Estado = "Al dia" | "Atencion" | "Atrasado" | "Sin datos";
 
@@ -18,7 +21,7 @@ let categoriaActiva: Categoria | "Todas" = "Todas";
 let busqueda = "";
 let panelActivo: Panel = "mapa";
 let mapa: L.Map | null = null;
-let vistaMapa: { centro: L.LatLngExpression; zoom: number } = { centro: [PAGE_HEIGHT / 2, PAGE_WIDTH / 2], zoom: -2 };
+let vistaMapa: { centro: L.LatLngExpression; zoom: number } = { centro: [-31.425, -62.084], zoom: 13 };
 let mapaInicializado = false;
 
 const fechaCorta = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
@@ -40,6 +43,11 @@ function estadoTerritorio(registros: RegistroSalida[]): Estado {
 
 function registrosDe(id: number) { return obtenerRegistros().filter((r) => r.territorioId === id); }
 function promedio(valores: number[]) { return valores.length ? Math.round(valores.reduce((a, b) => a + b, 0) / valores.length) : 0; }
+function coordenadaTerritorio(territorio: Territorio): L.LatLngTuple {
+  const lat = GEO_BOUNDS.north + (territorio.y / 100) * (GEO_BOUNDS.south - GEO_BOUNDS.north);
+  const lng = GEO_BOUNDS.west + (territorio.x / 100) * (GEO_BOUNDS.east - GEO_BOUNDS.west);
+  return [lat, lng];
+}
 function enMes(registro: RegistroSalida, desplazamiento = 0) {
   const referencia = new Date(HOY);
   referencia.setMonth(referencia.getMonth() + desplazamiento);
@@ -118,9 +126,9 @@ function render() {
           <article><span>Apoyo promedio</span><strong>${global.apoyo}</strong><small>hermanos por salida</small></article>
         </div>
         <div class="map-card">
-          <div class="map-toolbar"><div><span class="eyebrow">MAPA NAVEGABLE</span><h2>San Francisco</h2><small>Arrastra, acerca y selecciona un territorio</small></div><button id="fit-map" class="fit-map">Encuadrar mapa</button></div>
+          <div class="map-toolbar"><div><span class="eyebrow">MAPA REAL · OPENSTREETMAP</span><h2>San Francisco</h2><small>Arrastra, acerca y selecciona un territorio</small></div><button id="fit-map" class="fit-map">Encuadrar mapa</button></div>
           <div id="territory-map" aria-label="Mapa interactivo de territorios"></div>
-          <div class="map-footer"><span><i class="pulse"></i> ${filtrados.length} territorios visibles</span><span>Calles y limites del plano territorial original</span></div>
+          <div class="map-footer"><span><i class="pulse"></i> ${filtrados.length} territorios visibles</span><span>Mapa © OpenStreetMap · posiciones territoriales preliminares</span></div>
         </div>
       </section>
       <aside class="detail-panel">${panelActivo === "mapa" ? panelMapa(actual, metrica) : panelActivo === "estadisticas" ? panelTerritorio(actual, metrica) : panelActivo === "planificacion" ? panelPlanificacion() : panelInforme(global)}</aside>
@@ -175,18 +183,20 @@ function panelInforme(g: ReturnType<typeof datosGlobales>) {
 }
 
 function iniciarMapa(visibles: Territorio[]) {
-  mapa = L.map("territory-map", { crs: L.CRS.Simple, minZoom: -4, maxZoom: 1.5, zoomSnap: .25, attributionControl: false, zoomControl:false }).setView(vistaMapa.centro, vistaMapa.zoom);
+  mapa = L.map("territory-map", { minZoom: 11, maxZoom: 19, zoomSnap: .5, attributionControl: true, zoomControl:false }).setView(vistaMapa.centro, vistaMapa.zoom);
   L.control.zoom({ position: panelActivo === "mapa" ? "bottomright" : "topleft" }).addTo(mapa);
-  const limites = L.latLngBounds([0,0],[PAGE_HEIGHT,PAGE_WIDTH]);
-  L.imageOverlay(MAP_IMAGE, limites, { interactive:false }).addTo(mapa);
-  mapa.setMaxBounds(limites.pad(.18));
+  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(mapa);
+  const limites = L.latLngBounds([GEO_BOUNDS.south,GEO_BOUNDS.west],[GEO_BOUNDS.north,GEO_BOUNDS.east]);
+  mapa.setMaxBounds(limites.pad(.35));
   const idsVisibles = new Set(visibles.map(t=>t.id));
   territorios.forEach((t) => {
     if (!idsVisibles.has(t.id)) return;
     const m = metricasTerritorio(t);
     const claseEstado = m.estado === "Al dia" ? "current" : m.estado === "Atencion" ? "warning" : "late";
     const icono = L.divIcon({ className:"territory-marker-wrap", html:`<button class="leaflet-territory ${t.id===seleccionado?"selected":""}" style="--marker:${colorCategoria[t.categoria]}"><i class="${claseEstado}"></i>${t.id}</button>`, iconSize:[32,32], iconAnchor:[16,16] });
-    L.marker([(100-t.y)/100*PAGE_HEIGHT,t.x/100*PAGE_WIDTH],{icon:icono,title:`Territorio ${t.id}`}).addTo(mapa!).on("click",()=>{seleccionado=t.id;render();});
+    const posicion = coordenadaTerritorio(t);
+    L.circle(posicion, { radius:t.id===seleccionado?250:180, color:colorCategoria[t.categoria], weight:t.id===seleccionado?3:1, opacity:t.id===seleccionado?.9:.38, fillColor:colorCategoria[t.categoria], fillOpacity:t.id===seleccionado?.18:.07, interactive:true }).addTo(mapa!).on("click",()=>{seleccionado=t.id;render();});
+    L.marker(posicion,{icon:icono,title:`Territorio ${t.id}`}).addTo(mapa!).on("click",()=>{seleccionado=t.id;render();});
   });
   mapa.on("moveend zoomend",()=>{ if(mapa) vistaMapa={centro:mapa.getCenter(),zoom:mapa.getZoom()}; });
   setTimeout(()=>{ mapa?.invalidateSize(); if (!mapaInicializado && mapa) { mapa.fitBounds(limites,{padding:[12,12]}); mapaInicializado=true; } },0);
@@ -204,7 +214,7 @@ function bindEvents() {
   document.querySelectorAll<HTMLButtonElement>("[data-select]").forEach(b=>b.addEventListener("click",()=>{seleccionado=Number(b.dataset.select);panelActivo="estadisticas";render();}));
   document.querySelector<HTMLInputElement>("#search")?.addEventListener("input",e=>{busqueda=(e.target as HTMLInputElement).value.replace(/\D/g,"").slice(0,2);const t=territorios.find(t=>String(t.id)===busqueda);if(t)seleccionado=t.id;render();document.querySelector<HTMLInputElement>("#search")?.focus();});
   document.querySelector("#reset")?.addEventListener("click",()=>{categoriaActiva="Todas";busqueda="";render();});
-  document.querySelector("#fit-map")?.addEventListener("click",()=>mapa?.fitBounds([[0,0],[PAGE_HEIGHT,PAGE_WIDTH]],{padding:[15,15]}));
+  document.querySelector("#fit-map")?.addEventListener("click",()=>mapa?.fitBounds([[GEO_BOUNDS.south,GEO_BOUNDS.west],[GEO_BOUNDS.north,GEO_BOUNDS.east]],{padding:[15,15]}));
   document.querySelector("#open-report")?.addEventListener("click",()=>{panelActivo="informe";render();});
   document.querySelector("#view-stats")?.addEventListener("click",()=>{panelActivo="estadisticas";render();});
   document.querySelector("#print-report")?.addEventListener("click",()=>window.print());
