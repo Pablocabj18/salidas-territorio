@@ -189,15 +189,36 @@ function iniciarMapa(visibles: Territorio[]) {
   const limites = L.latLngBounds([GEO_BOUNDS.south,GEO_BOUNDS.west],[GEO_BOUNDS.north,GEO_BOUNDS.east]);
   mapa.setMaxBounds(limites.pad(.35));
   const idsVisibles = new Set(visibles.map(t=>t.id));
-  territorios.forEach((t) => {
-    if (!idsVisibles.has(t.id)) return;
-    const m = metricasTerritorio(t);
-    const claseEstado = m.estado === "Al dia" ? "current" : m.estado === "Atencion" ? "warning" : "late";
-    const icono = L.divIcon({ className:"territory-marker-wrap", html:`<button class="leaflet-territory ${t.id===seleccionado?"selected":""}" style="--marker:${colorCategoria[t.categoria]}"><i class="${claseEstado}"></i>${t.id}</button>`, iconSize:[32,32], iconAnchor:[16,16] });
-    const posicion = coordenadaTerritorio(t);
-    L.circle(posicion, { radius:t.id===seleccionado?250:180, color:colorCategoria[t.categoria], weight:t.id===seleccionado?3:1, opacity:t.id===seleccionado?.9:.38, fillColor:colorCategoria[t.categoria], fillOpacity:t.id===seleccionado?.18:.07, interactive:true }).addTo(mapa!).on("click",()=>{seleccionado=t.id;render();});
-    L.marker(posicion,{icon:icono,title:`Territorio ${t.id}`}).addTo(mapa!).on("click",()=>{seleccionado=t.id;render();});
-  });
+  const agregarMarcador = (territorio: Territorio, posicion: L.LatLngExpression) => {
+    if (!mapa || !idsVisibles.has(territorio.id)) return;
+    const metrica = metricasTerritorio(territorio);
+    const claseEstado = metrica.estado === "Al dia" ? "current" : metrica.estado === "Atencion" ? "warning" : "late";
+    const icono = L.divIcon({ className:"territory-marker-wrap", html:`<button class="leaflet-territory ${territorio.id===seleccionado?"selected":""}" style="--marker:${colorCategoria[territorio.categoria]}"><i class="${claseEstado}"></i>${territorio.id}</button>`, iconSize:[32,32], iconAnchor:[16,16] });
+    L.marker(posicion,{icon:icono,title:`Territorio ${territorio.id}`}).addTo(mapa).on("click",()=>{seleccionado=territorio.id;render();});
+  };
+  fetch(`${import.meta.env.BASE_URL}territorios.geojson`)
+    .then(response => response.ok ? response.json() : Promise.reject(new Error("GeoJSON no disponible")))
+    .then(collection => {
+      if (!mapa) return;
+      const layer = L.geoJSON(collection, {
+        filter: feature => idsVisibles.has(Number(feature.properties?.id)),
+        style: feature => {
+          const id = Number(feature?.properties?.id);
+          const territorio = territorios.find(item => item.id === id)!;
+          return { color:colorCategoria[territorio.categoria], weight:id===seleccionado?4:2, opacity:id===seleccionado?.95:.68, fillColor:colorCategoria[territorio.categoria], fillOpacity:id===seleccionado?.3:.14 };
+        },
+        onEachFeature: (feature, territoryLayer) => {
+          const id = Number(feature.properties?.id);
+          const territorio = territorios.find(item => item.id === id);
+          if (!territorio) return;
+          territoryLayer.on("click",()=>{seleccionado=id;render();});
+          const bounds = (territoryLayer as L.Polygon).getBounds();
+          agregarMarcador(territorio, bounds.getCenter());
+        },
+      }).addTo(mapa);
+      layer.bringToBack();
+    })
+    .catch(() => territorios.filter(item=>idsVisibles.has(item.id)).forEach(item=>agregarMarcador(item,coordenadaTerritorio(item))));
   mapa.on("moveend zoomend",()=>{ if(mapa) vistaMapa={centro:mapa.getCenter(),zoom:mapa.getZoom()}; });
   setTimeout(()=>{ mapa?.invalidateSize(); if (!mapaInicializado && mapa) { mapa.fitBounds(limites,{padding:[12,12]}); mapaInicializado=true; } },0);
 }
