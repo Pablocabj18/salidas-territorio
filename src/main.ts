@@ -10,13 +10,13 @@ const HOY = new Date("2026-08-24T12:00:00");
 const PAGE_WIDTH = 4918;
 const PAGE_HEIGHT = 2474;
 const MAP_IMAGE = `${import.meta.env.BASE_URL}mapa-territorios.png`;
-type Panel = "territorio" | "planificacion" | "informe";
+type Panel = "mapa" | "estadisticas" | "planificacion" | "informe";
 type Estado = "Al dia" | "Atencion" | "Atrasado" | "Sin datos";
 
 let seleccionado = 36;
 let categoriaActiva: Categoria | "Todas" = "Todas";
 let busqueda = "";
-let panelActivo: Panel = "territorio";
+let panelActivo: Panel = "mapa";
 let mapa: L.Map | null = null;
 let vistaMapa: { centro: L.LatLngExpression; zoom: number } = { centro: [PAGE_HEIGHT / 2, PAGE_WIDTH / 2], zoom: -2 };
 let mapaInicializado = false;
@@ -93,11 +93,11 @@ function render() {
     <header class="topbar">
       <a class="brand" href="#"><span class="brand-mark">SF</span><span>Territorio</span></a>
       <nav class="main-nav" aria-label="Secciones">
-        ${navButton("territorio", "Mapa")}${navButton("planificacion", "Planificacion")}${navButton("informe", "Informe mensual")}
+        ${navButton("mapa", "Mapa")}${navButton("estadisticas", "Estadisticas")}${navButton("planificacion", "Planificacion")}${navButton("informe", "Informe")}
       </nav>
       <div class="header-actions"><span class="demo-pill"><i></i> Datos locales · demo inicial</span><button id="new-record-top" class="header-primary">+ Registrar salida</button></div>
     </header>
-    <main class="dashboard">
+    <main class="dashboard ${panelActivo === "mapa" ? "map-mode" : ""}">
       <aside class="sidebar">
         <div class="sidebar-heading"><div><span class="eyebrow">EXPLORAR</span><h1>Territorios</h1></div><span class="count">${filtrados.length}/96</span></div>
         <label class="search"><span>⌕</span><input id="search" value="${busqueda}" inputmode="numeric" placeholder="Buscar por numero" aria-label="Buscar territorio por numero"></label>
@@ -123,7 +123,7 @@ function render() {
           <div class="map-footer"><span><i class="pulse"></i> ${filtrados.length} territorios visibles</span><span>Calles y limites del plano territorial original</span></div>
         </div>
       </section>
-      <aside class="detail-panel">${panelActivo === "territorio" ? panelTerritorio(actual, metrica) : panelActivo === "planificacion" ? panelPlanificacion() : panelInforme(global)}</aside>
+      <aside class="detail-panel">${panelActivo === "mapa" ? panelMapa(actual, metrica) : panelActivo === "estadisticas" ? panelTerritorio(actual, metrica) : panelActivo === "planificacion" ? panelPlanificacion() : panelInforme(global)}</aside>
     </main>
     ${modalRegistro()}`;
   iniciarMapa(filtrados);
@@ -131,6 +131,15 @@ function render() {
 }
 
 function navButton(panel: Panel, texto: string) { return `<button data-panel="${panel}" class="nav-button ${panelActivo === panel ? "active" : ""}">${texto}</button>`; }
+
+function panelMapa(territorio: Territorio, m: ReturnType<typeof metricasTerritorio>) {
+  const estadoClase = m.estado === "Al dia" ? "current" : m.estado === "Atencion" ? "warning" : "late";
+  return `<div class="map-selection-card">
+    <div class="selection-color" style="--selection:${colorCategoria[territorio.categoria]}"></div>
+    <div class="selection-main"><span class="eyebrow">SELECCION ACTUAL</span><h2>Territorio ${territorio.id}</h2><p><i class="status-dot ${estadoClase}"></i>${m.estado}${m.ultima ? ` · ultima salida hace ${diasDesde(m.ultima.fecha)} dias` : " · sin registros"}</p></div>
+    <button id="view-stats" class="selection-action">Ver estadisticas <span>→</span></button>
+  </div>`;
+}
 
 function panelTerritorio(territorio: Territorio, m: ReturnType<typeof metricasTerritorio>) {
   const estadoClase = m.estado === "Al dia" ? "current" : m.estado === "Atencion" ? "warning" : "late";
@@ -166,7 +175,8 @@ function panelInforme(g: ReturnType<typeof datosGlobales>) {
 }
 
 function iniciarMapa(visibles: Territorio[]) {
-  mapa = L.map("territory-map", { crs: L.CRS.Simple, minZoom: -4, maxZoom: 1.5, zoomSnap: .25, attributionControl: false }).setView(vistaMapa.centro, vistaMapa.zoom);
+  mapa = L.map("territory-map", { crs: L.CRS.Simple, minZoom: -4, maxZoom: 1.5, zoomSnap: .25, attributionControl: false, zoomControl:false }).setView(vistaMapa.centro, vistaMapa.zoom);
+  L.control.zoom({ position: panelActivo === "mapa" ? "bottomright" : "topleft" }).addTo(mapa);
   const limites = L.latLngBounds([0,0],[PAGE_HEIGHT,PAGE_WIDTH]);
   L.imageOverlay(MAP_IMAGE, limites, { interactive:false }).addTo(mapa);
   mapa.setMaxBounds(limites.pad(.18));
@@ -176,7 +186,7 @@ function iniciarMapa(visibles: Territorio[]) {
     const m = metricasTerritorio(t);
     const claseEstado = m.estado === "Al dia" ? "current" : m.estado === "Atencion" ? "warning" : "late";
     const icono = L.divIcon({ className:"territory-marker-wrap", html:`<button class="leaflet-territory ${t.id===seleccionado?"selected":""}" style="--marker:${colorCategoria[t.categoria]}"><i class="${claseEstado}"></i>${t.id}</button>`, iconSize:[32,32], iconAnchor:[16,16] });
-    L.marker([(100-t.y)/100*PAGE_HEIGHT,t.x/100*PAGE_WIDTH],{icon:icono,title:`Territorio ${t.id}`}).addTo(mapa!).on("click",()=>{seleccionado=t.id;panelActivo="territorio";render();});
+    L.marker([(100-t.y)/100*PAGE_HEIGHT,t.x/100*PAGE_WIDTH],{icon:icono,title:`Territorio ${t.id}`}).addTo(mapa!).on("click",()=>{seleccionado=t.id;render();});
   });
   mapa.on("moveend zoomend",()=>{ if(mapa) vistaMapa={centro:mapa.getCenter(),zoom:mapa.getZoom()}; });
   setTimeout(()=>{ mapa?.invalidateSize(); if (!mapaInicializado && mapa) { mapa.fitBounds(limites,{padding:[12,12]}); mapaInicializado=true; } },0);
@@ -191,17 +201,18 @@ function modalRegistro() {
 function bindEvents() {
   document.querySelectorAll<HTMLButtonElement>("[data-panel]").forEach(b=>b.addEventListener("click",()=>{panelActivo=b.dataset.panel as Panel;render();}));
   document.querySelectorAll<HTMLButtonElement>("[data-category]").forEach(b=>b.addEventListener("click",()=>{categoriaActiva=b.dataset.category as Categoria|"Todas";render();}));
-  document.querySelectorAll<HTMLButtonElement>("[data-select]").forEach(b=>b.addEventListener("click",()=>{seleccionado=Number(b.dataset.select);panelActivo="territorio";render();}));
+  document.querySelectorAll<HTMLButtonElement>("[data-select]").forEach(b=>b.addEventListener("click",()=>{seleccionado=Number(b.dataset.select);panelActivo="estadisticas";render();}));
   document.querySelector<HTMLInputElement>("#search")?.addEventListener("input",e=>{busqueda=(e.target as HTMLInputElement).value.replace(/\D/g,"").slice(0,2);const t=territorios.find(t=>String(t.id)===busqueda);if(t)seleccionado=t.id;render();document.querySelector<HTMLInputElement>("#search")?.focus();});
   document.querySelector("#reset")?.addEventListener("click",()=>{categoriaActiva="Todas";busqueda="";render();});
   document.querySelector("#fit-map")?.addEventListener("click",()=>mapa?.fitBounds([[0,0],[PAGE_HEIGHT,PAGE_WIDTH]],{padding:[15,15]}));
   document.querySelector("#open-report")?.addEventListener("click",()=>{panelActivo="informe";render();});
+  document.querySelector("#view-stats")?.addEventListener("click",()=>{panelActivo="estadisticas";render();});
   document.querySelector("#print-report")?.addEventListener("click",()=>window.print());
   document.querySelector("#restore-demo")?.addEventListener("click",()=>{if(confirm("Se reemplazaran los registros locales por los datos demo. ¿Continuar?")){restaurarDemo();render();}});
   const dialog=document.querySelector<HTMLDialogElement>("#record-dialog");
   ["#new-record-top","#new-record-inline","#new-record-detail"].forEach(id=>document.querySelector(id)?.addEventListener("click",()=>dialog?.showModal()));
   ["#close-dialog","#cancel-dialog"].forEach(id=>document.querySelector(id)?.addEventListener("click",()=>dialog?.close()));
-  document.querySelector<HTMLFormElement>("#record-form")?.addEventListener("submit",e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);guardarRegistro({fecha:String(data.get("fecha")),territorioId:Number(data.get("territorioId")),hermanos:Number(data.get("hermanos")),modalidad:String(data.get("modalidad")) as Modalidad,cobertura:Number(data.get("cobertura")),revisitas:Number(data.get("revisitas")),cursos:Number(data.get("cursos")),observacion:String(data.get("observacion")||"")});seleccionado=Number(data.get("territorioId"));panelActivo="territorio";dialog?.close();render();});
+  document.querySelector<HTMLFormElement>("#record-form")?.addEventListener("submit",e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);guardarRegistro({fecha:String(data.get("fecha")),territorioId:Number(data.get("territorioId")),hermanos:Number(data.get("hermanos")),modalidad:String(data.get("modalidad")) as Modalidad,cobertura:Number(data.get("cobertura")),revisitas:Number(data.get("revisitas")),cursos:Number(data.get("cursos")),observacion:String(data.get("observacion")||"")});seleccionado=Number(data.get("territorioId"));panelActivo="estadisticas";dialog?.close();render();});
 }
 
 render();

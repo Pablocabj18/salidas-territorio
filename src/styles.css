@@ -156,3 +156,63 @@ dialog::backdrop { background:#222521a8; backdrop-filter:blur(3px); }
 @media (max-width:1100px) { .topbar{grid-template-columns:190px 1fr 250px}.demo-pill{display:none}.detail-panel{display:block}.header-actions{gap:5px} }
 @media (max-width:760px) { .topbar{grid-template-columns:1fr auto auto}.main-nav{order:3;position:fixed;left:0;right:0;bottom:0;height:56px;background:#f8f6f0;border-top:1px solid var(--line);z-index:100;align-items:center}.nav-button{flex:1}.header-primary{font-size:0;padding:9px 11px}.header-primary:after{content:"+ Salida";font-size:9px}.dashboard{padding-bottom:56px}.status-legend{grid-template-columns:repeat(3,1fr)}#territory-map{min-height:420px}.form-grid{grid-template-columns:1fr}.form-grid .full{grid-column:auto}.detail-panel{grid-template-columns:none}.map-card{height:68vh}.sidebar-note{margin-top:12px} }
 @media print { .topbar,.sidebar,.workspace,.primary-action,.print-button,.danger{display:none!important}.dashboard{display:block}.detail-panel{border:0;width:100%;padding:20px}.report-hero{background:#eee!important;color:#111!important}.detail-panel{display:block!important} }
+
+/* Vista principal inspirada en Apple Maps */
+:root { font-family:-apple-system,BlinkMacSystemFont,"SF Pro Display","Segoe UI",sans-serif; }
+.topbar { height:68px; background:rgba(250,250,248,.84); backdrop-filter:saturate(180%) blur(24px); -webkit-backdrop-filter:saturate(180%) blur(24px); box-shadow:0 1px 0 #ffffffb8; }
+.brand { letter-spacing:-.035em; }
+.brand-mark { border-radius:10px; background:linear-gradient(145deg,#c5443b,#8f1f1b); box-shadow:0 5px 14px #9d2e2930; }
+.main-nav { background:#ecebe7; padding:3px; border-radius:10px; width:max-content; margin:auto; }
+.nav-button { border-radius:8px; padding:7px 13px; font-weight:600; }
+.nav-button:hover { background:#f7f6f3; }
+.nav-button.active { background:#fff; box-shadow:0 1px 5px #24282418,0 0 0 1px #00000008; }
+.header-primary { border-radius:10px; padding:10px 15px; box-shadow:0 5px 14px #20231f20; }
+
+.dashboard.map-mode { position:relative; display:block; height:calc(100vh - 68px); min-height:600px; overflow:hidden; background:#e9e8e4; }
+.map-mode .workspace { position:absolute; inset:0; padding:0; }
+.map-mode .summary-row { display:none; }
+.map-mode .map-card { height:100%; min-height:0; border:0; border-radius:0; display:block; position:relative; background:#e9e8e4; }
+.map-mode .map-toolbar { position:absolute; z-index:800; top:20px; right:20px; width:auto; min-height:auto; padding:10px 12px; border:1px solid #ffffffc7; border-radius:14px; background:rgba(255,255,255,.76); backdrop-filter:blur(22px) saturate(170%); -webkit-backdrop-filter:blur(22px) saturate(170%); box-shadow:0 10px 30px #1d201c18; }
+.map-mode .map-toolbar>div { display:none; }
+.map-mode .fit-map { border:0; background:transparent; padding:4px 6px; font-size:10px; font-weight:700; }
+.map-mode #territory-map { height:100%; min-height:100%; background:#e9e8e4; }
+.map-mode .map-footer { display:none; }
+.map-mode .sidebar { position:absolute; z-index:800; top:20px; left:20px; width:224px; max-height:calc(100% - 40px); padding:18px; border:1px solid #ffffffc7; border-radius:18px; background:rgba(255,255,255,.78); backdrop-filter:blur(28px) saturate(175%); -webkit-backdrop-filter:blur(28px) saturate(175%); box-shadow:0 16px 50px #1f241e1c; overflow:auto; }
+.map-mode .sidebar-heading { margin-bottom:15px; }
+.map-mode .sidebar h1 { font-size:22px; }
+.map-mode .search { border:0; border-radius:11px; background:#e8e8e5bd; box-shadow:none; }
+.map-mode .filter-label { margin-top:19px; }
+.map-mode .category { border-radius:9px; padding:8px 9px; }
+.map-mode .category:hover,.map-mode .category.active { background:#e4e4e0; }
+.map-mode .sidebar-note,.map-mode .reset-button { display:none; }
+.map-mode .status-legend { border:0; padding:10px; border-radius:11px; background:#ebeae7bf; }
+.map-mode>.detail-panel { position:absolute; z-index:810; left:50%; bottom:22px; transform:translateX(-50%); width:min(590px,calc(100% - 530px)); padding:0; border:0; background:transparent; overflow:visible; }
+.map-selection-card { display:grid; grid-template-columns:5px 1fr auto; align-items:center; gap:16px; padding:13px 14px; border:1px solid #ffffffd6; border-radius:19px; background:rgba(255,255,255,.82); backdrop-filter:blur(30px) saturate(180%); -webkit-backdrop-filter:blur(30px) saturate(180%); box-shadow:0 18px 55px #19201925; }
+.selection-color { width:5px; height:48px; border-radius:10px; background:var(--selection); }
+.selection-main h2 { font-size:19px; letter-spacing:-.04em; margin:2px 0 4px; }
+.selection-main p { display:flex; align-items:center; gap:6px; font-size:9px; color:#777b73; }
+.selection-action { display:flex; align-items:center; gap:18px; border:0; border-radius:12px; background:#20231f; color:#fff; padding:12px 14px; font-size:10px; font-weight:700; cursor:pointer; box-shadow:0 5px 14px #20231f25; }
+.map-mode .leaflet-control-zoom { margin-right:18px!important; margin-bottom:18px!important; border:1px solid #ffffffd9!important; border-radius:13px!important; overflow:hidden; background:rgba(255,255,255,.8)!important; backdrop-filter:blur(20px); }
+.map-mode .leaflet-control-zoom a { width:38px!important; height:38px!important; line-height:38px!important; background:transparent!important; }
+.map-mode .leaflet-territory { border-radius:50%; width:31px; height:31px; border-width:2px; box-shadow:0 3px 12px #0005; }
+.map-mode .leaflet-territory.selected { box-shadow:0 0 0 4px #fff,0 0 0 7px #2486ff,0 6px 18px #0006; }
+
+@media (max-width:900px) {
+  .topbar { grid-template-columns:165px 1fr auto; }
+  .map-mode>.detail-panel { width:min(530px,calc(100% - 300px)); }
+}
+@media (max-width:760px) {
+  .topbar { height:58px; }
+  .dashboard.map-mode { height:calc(100vh - 58px); min-height:520px; padding-bottom:56px; }
+  .map-mode .sidebar { top:12px; left:12px; width:calc(100% - 72px); max-height:none; padding:10px; border-radius:15px; overflow:visible; }
+  .map-mode .sidebar-heading,.map-mode .filter-label,.map-mode .category-list,.map-mode .status-legend { display:none; }
+  .map-mode .search { height:40px; }
+  .map-mode .map-toolbar { top:12px; right:12px; padding:9px; border-radius:13px; }
+  .map-mode>.detail-panel { left:12px; right:12px; bottom:68px; transform:none; width:auto; }
+  .map-selection-card { grid-template-columns:4px 1fr; gap:11px; padding:11px; border-radius:17px; }
+  .selection-color { height:42px; }
+  .selection-action { grid-column:1/-1; justify-content:space-between; padding:11px 13px; }
+  .map-mode .leaflet-control-zoom { margin-bottom:125px!important; }
+  .main-nav { border-radius:0; padding:4px; width:100%; }
+  .nav-button { padding:7px 4px; font-size:9px; }
+}
