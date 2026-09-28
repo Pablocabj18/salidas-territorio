@@ -8,10 +8,10 @@ import type { Categoria, Modalidad, RegistroSalida, Territorio } from "./types/d
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const HOY = new Date();
 const GEO_BOUNDS = {
-  north: -31.385,
-  south: -31.478,
-  west: -62.137,
-  east: -62.027,
+  north: -31.3976478,
+  south: -31.4418611,
+  west: -62.1238658,
+  east: -62.0938876,
 };
 type Panel = "mapa" | "estadisticas" | "planificacion" | "informe";
 type Estado = "Al dia" | "Atencion" | "Atrasado" | "Sin datos";
@@ -22,7 +22,7 @@ let categoriaActiva: Categoria | "Todas" = "Todas";
 let busqueda = "";
 let panelActivo: Panel = "mapa";
 let mapa: L.Map | null = null;
-let vistaMapa: { centro: L.LatLngExpression; zoom: number } = { centro: [-31.425, -62.084], zoom: 13 };
+let vistaMapa: { centro: L.LatLngExpression; zoom: number } = { centro: [-31.41975, -62.10888], zoom: 14 };
 let mapaInicializado = false;
 
 const fechaCorta = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
