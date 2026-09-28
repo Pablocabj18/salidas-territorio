@@ -241,6 +241,9 @@ dialog::backdrop { background:#222521a8; backdrop-filter:blur(3px); }
 .campaign-toggle strong,.campaign-toggle small { display:block;font-size:9px; }.campaign-toggle small{margin-top:2px;color:#777971}.campaign-toggle.active{border-color:#d49b2e;background:#fff9ec}
 .campaign-complete { border:0;border-radius:12px;padding:11px 13px;background:#f0a52b;color:#38290f;font-size:9px;font-weight:800;cursor:pointer;white-space:nowrap; }
 .campaign-complete.done { background:#dcefe2;color:#2c7446; }
+.block-summary { display:block;margin-top:5px;color:#516057;font-size:9px;font-weight:700; }
+.block-editor { position:absolute;z-index:850;top:86px;right:20px;width:286px;padding:14px;border:1px solid #ffffffd6;border-radius:17px;background:rgba(255,255,255,.9);backdrop-filter:blur(25px) saturate(170%);box-shadow:0 16px 45px #1d241f24; }
+.block-editor.hidden { display:none; }.block-editor>div:first-of-type{padding-right:24px}.block-editor strong,.block-editor small{display:block}.block-editor strong{font-size:13px;margin-top:4px}.block-editor small{font-size:9px;color:#72776f;margin-top:4px}.block-close{position:absolute;top:8px;right:8px;width:26px;height:26px;border:0;border-radius:50%;background:#ecece8;cursor:pointer;font-size:16px}.block-state-actions{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:12px}.block-state-actions button{border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 4px;font-size:8px;font-weight:800;cursor:pointer}.block-state-actions button.active{background:#20231f;color:#fff;border-color:#20231f}.block-state-actions button:disabled{opacity:.45;cursor:not-allowed}
 .campaign-card { padding:15px;border-radius:9px;background:#263129;color:#fff;margin-bottom:10px; }
 .campaign-card .campaign-heading span,.campaign-card .campaign-heading b { display:block; }.campaign-card .campaign-heading span{font:500 8px 'DM Mono';letter-spacing:.12em;color:#afbeb3}.campaign-card .campaign-heading b{margin-top:3px;font-size:12px}.campaign-card>strong{display:block;margin:13px 0 6px;font-size:28px}.campaign-card>strong small{font-size:12px;color:#aeb9b1}.campaign-card .report-progress{background:#4a554d}.campaign-card .report-progress i{background:#55b876}.campaign-card p{font-size:8px;color:#afbeb3;margin-top:7px}
 .empty-campaign { padding:14px;border:1px dashed #c8c2b7;border-radius:8px;margin-bottom:8px; }.empty-campaign strong{font-size:10px}.empty-campaign p{font-size:8px;color:#777971;margin-top:4px}
@@ -255,6 +258,7 @@ dialog::backdrop { background:#222521a8; backdrop-filter:blur(3px); }
 @media (max-width:760px) {
   .header-actions { gap:6px; }.account-button{padding:6px 8px}.map-selection-card:has(.campaign-complete) .selection-buttons{display:grid;grid-template-columns:40px 1fr}.map-selection-card:has(.campaign-complete) .selection-action{grid-column:1/-1}.campaign-complete{width:100%}
   .map-mode .campaign-toggle { position:absolute;top:52px;left:0;width:auto;max-width:calc(100vw - 90px);background:rgba(255,255,255,.88);backdrop-filter:blur(20px); }
+  .block-editor { position:absolute;top:142px;left:12px;right:12px;width:auto;padding:12px;border-radius:15px; }
   .dashboard:not(.map-mode) .sidebar,.dashboard:not(.map-mode) .workspace { display:none; }
   .dashboard:not(.map-mode) .detail-panel { min-height:calc(100dvh - 120px);padding:24px 16px 90px;border:0; }
 }

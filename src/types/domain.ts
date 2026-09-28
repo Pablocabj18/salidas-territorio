@@ -68,6 +68,17 @@ export interface Campana {
   demo?: boolean;
 }
 
+export type EstadoCuadra = "Pendiente" | "En curso" | "Completada";
+
+export interface ProgresoCuadra {
+  id: string;
+  territorioId: number;
+  estado: EstadoCuadra;
+  fecha: string;
+  actualizadoPor?: string;
+  actualizadoEn?: string;
+}
+
 export interface EstadoDatos {
   modo: "local" | "firebase";
   conectado: boolean;
@@ -79,4 +90,5 @@ export interface DatosAplicacion {
   registros: RegistroSalida[];
   asignaciones: Asignacion[];
   campanas: Campana[];
+  progresoCuadras: ProgresoCuadra[];
 }

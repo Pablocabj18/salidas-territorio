@@ -10,6 +10,7 @@ Aplicación web para explorar, planificar y medir los 96 territorios asignados d
 - registros de salidas y comparación mensual;
 - asignaciones por fecha, hora, grupo y punto de encuentro;
 - campaña activa con avance por territorio;
+- 403 cuadras seleccionables, con estado pendiente, en curso o completada;
 - prioridades y programa territorial imprimible;
 - informe mensual con criterios de cálculo visibles;
 - instalación como aplicación (PWA) y caché de la interfaz;
@@ -49,6 +50,7 @@ Colecciones usadas:
 - `registros`: cantidades agregadas de cada salida;
 - `asignaciones`: programa operativo sin nombres personales;
 - `campanas`: alcance y territorios completados;
+- `progresoCuadras`: estado y fecha de cada cuadra, usando su identificador estable;
 - `administradores`: lista privada de UID autorizados.
 
 ## Geometría y procedencia
@@ -61,7 +63,18 @@ python scripts/convert_kml_to_geojson.py "Territorio OESTE.kml" public/territori
 
 Los colores se conservan con nombres neutrales porque todavía no se confirmó su significado operativo.
 
-No se dibujaron manzanas internas artificiales: para habilitar seguimiento calle por calle hace falta otro KML/GeoJSON con esos límites. Así se evita presentar como exacta una subdivisión estimada.
+## Cuadras generadas
+
+`public/cuadras.geojson` contiene 403 unidades generadas con las calles vehiculares de OpenStreetMap y recortadas dentro de los 96 territorios. Cada una posee un ID estable como `T36-C01`, área, territorio, procedencia y fecha de actualización.
+
+La generación se puede repetir con:
+
+```bash
+pip install -r scripts/requirements-geometry.txt
+python scripts/generate_blocks_from_osm.py public/territorios.geojson public/cuadras.geojson
+```
+
+El proceso descarta fragmentos menores a 650 m² y separa únicamente por calles vehiculares. Los territorios 2, 57 y 58 quedaron marcados en la metadata como casos para revisión visual debido a su cantidad de subdivisiones o forma irregular. La geometría es una ayuda operativa derivada de OSM, no un catastro oficial.
 
 ## Funcionamiento sin conexión
 

@@ -1,9 +1,10 @@
 import type { Auth } from "firebase/auth";
 import type { Firestore, Unsubscribe } from "firebase/firestore";
 import firebaseConfig, { firebaseConfigurado } from "../config/firebase";
-import type { Asignacion, Campana, DatosAplicacion, EstadoDatos, RegistroSalida, UsuarioSesion } from "../types/domain";
+import type { Asignacion, Campana, DatosAplicacion, EstadoCuadra, EstadoDatos, ProgresoCuadra, RegistroSalida, UsuarioSesion } from "../types/domain";
 import {
   actualizarCampanaLocal,
+  actualizarCuadraLocal,
   guardarAsignacionLocal,
   guardarCampanaLocal,
   guardarRegistroLocal,
@@ -44,11 +45,12 @@ export async function iniciarBackend(observar: Observador, observarEstado: Obser
     localCache: firestoreModule.persistentLocalCache({ tabManager: firestoreModule.persistentMultipleTabManager() }),
   });
   auth = authModule.getAuth(app);
-  const datos: DatosAplicacion = { registros: [], asignaciones: [], campanas: [] };
+  const datos: DatosAplicacion = { registros: [], asignaciones: [], campanas: [], progresoCuadras: [] };
   const publicar = () => observar({
     registros: [...datos.registros],
     asignaciones: [...datos.asignaciones],
     campanas: [...datos.campanas],
+    progresoCuadras: [...datos.progresoCuadras],
   });
   const subs: Unsubscribe[] = [];
 
@@ -71,6 +73,7 @@ export async function iniciarBackend(observar: Observador, observarEstado: Obser
   escuchar<RegistroSalida>("registros", "registros");
   escuchar<Asignacion>("asignaciones", "asignaciones");
   escuchar<Campana>("campanas", "campanas");
+  escuchar<ProgresoCuadra>("progresoCuadras", "progresoCuadras");
 
   subs.push(authModule.onAuthStateChanged(auth, async (user) => {
     if (!user) {
@@ -143,6 +146,25 @@ export async function actualizarCampana(campana: Campana) {
   const firestore = exigirAdmin();
   if (!firestoreSdk) throw new Error("La sincronización todavía no está lista.");
   await firestoreSdk.setDoc(firestoreSdk.doc(firestore, "campanas", campana.id), campana);
+}
+
+export async function actualizarCuadra(id: string, territorioId: number, estado: EstadoCuadra) {
+  const progreso: ProgresoCuadra = {
+    id,
+    territorioId,
+    estado,
+    fecha: new Date().toISOString().slice(0, 10),
+    actualizadoPor: usuarioActual?.uid,
+    actualizadoEn: new Date().toISOString(),
+  };
+  if (!firebaseConfigurado) return actualizarCuadraLocal(progreso);
+  const firestore = exigirAdmin();
+  if (!firestoreSdk) throw new Error("La sincronización todavía no está lista.");
+  if (estado === "Pendiente") {
+    await firestoreSdk.deleteDoc(firestoreSdk.doc(firestore, "progresoCuadras", id));
+  } else {
+    await firestoreSdk.setDoc(firestoreSdk.doc(firestore, "progresoCuadras", id), progreso);
+  }
 }
 
 export async function eliminarAsignacion(id: string) {

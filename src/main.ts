@@ -5,6 +5,7 @@ import "./styles.css";
 import { categorias, colorCategoria, territorios } from "./data/territorios";
 import {
   actualizarCampana,
+  actualizarCuadra,
   cerrarSesion,
   firebaseConfigurado,
   guardarAsignacion,
@@ -15,7 +16,7 @@ import {
 } from "./services/backend";
 import { obtenerDatosLocales, restaurarDemo } from "./services/registros";
 import { diasTranscurridos, diferenciaPorcentual, perteneceAlMes, promedio } from "./services/metricas";
-import type { Categoria, DatosAplicacion, EstadoDatos, Modalidad, RegistroSalida, Territorio, UsuarioSesion } from "./types/domain";
+import type { Categoria, DatosAplicacion, EstadoCuadra, EstadoDatos, Modalidad, RegistroSalida, Territorio, UsuarioSesion } from "./types/domain";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 setWorkerUrl(workerUrl);
@@ -37,6 +38,8 @@ let panelActivo: Panel = "mapa";
 let mapa: Map | null = null;
 let controlUbicacion: GeolocateControl | null = null;
 let geometriasTerritorios: any = null;
+let geometriasCuadras: any = null;
+let cuadraSeleccionada: string | null = null;
 let vistaMapa: { centro: [number, number]; zoom: number } = { centro: [-62.10888, -31.41975], zoom: 14 };
 let mapaInicializado = false;
 let datosAplicacion: DatosAplicacion = obtenerDatosLocales();
@@ -74,11 +77,20 @@ function metricasTerritorio(territorio: Territorio) {
   const actuales = registros.filter((r) => enMes(r));
   const anteriores = registros.filter((r) => enMes(r, -1));
   const ultima = [...registros].sort((a, b) => b.fecha.localeCompare(a.fecha))[0];
+  const cuadras = geometriasCuadras?.features?.filter((feature:any) => Number(feature.properties?.territorioId) === territorio.id) ?? [];
+  const progresos = new globalThis.Map(datosAplicacion.progresoCuadras.map((item) => [item.id, item]));
+  const cuadrasCompletadas = cuadras.filter((feature:any) => progresos.get(String(feature.properties?.id))?.estado === "Completada").length;
+  const cuadrasRevisar = cuadras.some((feature:any) => feature.properties?.needsReview === true);
+  const coberturaCuadras = cuadras.length ? Math.round(cuadrasCompletadas / cuadras.length * 100) : null;
   return {
     registros, actuales, anteriores, ultima,
     estado: estadoTerritorio(registros),
     apoyo: promedio(actuales.map((r) => r.hermanos)),
-    cobertura: Math.min(100, actuales.reduce((total, r) => total + r.cobertura, 0)),
+    cobertura: coberturaCuadras ?? Math.min(100, actuales.reduce((total, r) => total + r.cobertura, 0)),
+    coberturaFuente: coberturaCuadras === null ? "estimada" : "cuadras",
+    cuadrasTotal: cuadras.length,
+    cuadrasCompletadas,
+    cuadrasRevisar,
     revisitas: actuales.reduce((total, r) => total + r.revisitas, 0),
     cursos: actuales.reduce((total, r) => total + r.cursos, 0),
   };
@@ -148,7 +160,8 @@ function render() {
         </div>
         <div class="map-card">
           <div class="map-toolbar"><div><span class="eyebrow">MAPA DE TERRITORIOS</span><h2>San Francisco</h2><small>Calles reales · selecciona un sector</small></div><div class="map-tools"><button id="locate-me" class="round-map-action" aria-label="Mostrar mi ubicación" title="Mi ubicación">${icono("ubicacion")}</button><button id="fit-map" class="round-map-action" aria-label="Ver todos los territorios" title="Ver todos">${icono("encuadrar")}</button></div></div>
-          <div id="territory-map" aria-label="Mapa interactivo de territorios"></div>
+          <div id="territory-map" aria-label="Mapa interactivo de territorios y cuadras"></div>
+          ${editorCuadra()}
           <div class="map-footer"><span><i class="pulse"></i> ${filtrados.length} territorios visibles</span><span>Cartografía © OpenStreetMap · límites: KML del 28/09/2026</span></div>
         </div>
       </section>
@@ -180,9 +193,23 @@ function panelMapa(territorio: Territorio, m: ReturnType<typeof metricasTerritor
   const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
   return `<div class="map-selection-card">
     <div class="selection-color" style="--selection:${colorCategoria[territorio.categoria]}"></div>
-    <div class="selection-main"><span class="eyebrow">SELECCION ACTUAL</span><h2>Territorio ${territorio.id}</h2><p><i class="status-dot ${estadoClase}"></i>${m.estado}${m.ultima ? ` · ultima salida hace ${diasDesde(m.ultima.fecha)} dias` : " · sin registros"}</p></div>
+    <div class="selection-main"><span class="eyebrow">SELECCION ACTUAL</span><h2>Territorio ${territorio.id}</h2><p><i class="status-dot ${estadoClase}"></i>${m.estado}${m.ultima ? ` · ultima salida hace ${diasDesde(m.ultima.fecha)} dias` : " · sin registros"}</p>${m.cuadrasTotal ? `<small class="block-summary">${m.cuadrasCompletadas}/${m.cuadrasTotal} cuadras completadas${m.cuadrasRevisar ? " · revisar división" : ""}</small>` : ""}</div>
     <div class="selection-buttons"><button id="share-territory" class="share-action" aria-label="Compartir territorio">${icono("compartir")}</button>${modoCampana && campana ? `<button id="toggle-campaign-complete" class="campaign-complete ${completado ? "done" : ""}" ${puedeEditar ? "" : "disabled"}>${completado ? "✓ Completado" : "Marcar completo"}</button>` : ""}<button id="view-stats" class="selection-action">Ver estadísticas <span>→</span></button></div>
   </div>`;
+}
+
+function editorCuadra() {
+  const feature = geometriasCuadras?.features?.find((item:any) => String(item.properties?.id) === cuadraSeleccionada);
+  const progreso = datosAplicacion.progresoCuadras.find((item) => item.id === cuadraSeleccionada);
+  const estado = progreso?.estado ?? "Pendiente";
+  const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
+  return `<aside id="block-editor" class="block-editor ${feature ? "" : "hidden"}" aria-live="polite">
+    <button id="close-block-editor" class="block-close" aria-label="Cerrar cuadra">×</button>
+    <div><span class="eyebrow">CUADRA SELECCIONADA</span><strong id="block-title">${feature ? `${feature.properties.id} · Territorio ${feature.properties.territorioId}` : "Seleccioná una cuadra"}</strong><small id="block-state">Estado: ${estado}${progreso?.fecha ? ` · ${fechaCorta.format(new Date(`${progreso.fecha}T12:00:00`))}` : ""}</small></div>
+    <div class="block-state-actions">
+      ${(["Pendiente","En curso","Completada"] as EstadoCuadra[]).map((item)=>`<button data-block-state="${item}" class="${estado===item?"active":""}" ${puedeEditar?"":"disabled"}>${item === "Completada" ? "✓ " : ""}${item}</button>`).join("")}
+    </div>
+  </aside>`;
 }
 
 function enfocarTerritorio(id:number) {
@@ -196,14 +223,19 @@ function enfocarTerritorio(id:number) {
   const status=document.querySelector<HTMLElement>(".selection-main p");
   const color=document.querySelector<HTMLElement>(".selection-color");
   const campaignButton=document.querySelector<HTMLButtonElement>("#toggle-campaign-complete");
+  const blockSummary=document.querySelector<HTMLElement>(".block-summary");
   if(heading) heading.textContent=`Territorio ${id}`;
   if(status) status.innerHTML=`<i class="status-dot ${estadoClase}"></i>${metrica.estado}${metrica.ultima?` · ultima salida hace ${diasDesde(metrica.ultima.fecha)} dias`:" · sin registros"}`;
   color?.style.setProperty("--selection",colorCategoria[territorio.categoria]);
   if(campaignButton){const completa=datosAplicacion.campanas.find((item)=>item.activa)?.completados.includes(id);campaignButton.textContent=completa?"✓ Completado":"Marcar completo";campaignButton.classList.toggle("done",Boolean(completa));}
+  if(blockSummary)blockSummary.textContent=`${metrica.cuadrasCompletadas}/${metrica.cuadrasTotal} cuadras completadas${metrica.cuadrasRevisar?" · revisar división":""}`;
   mapa.setPaintProperty("territorios-fill","fill-opacity",modoCampana?["case",["==",["get","id"],id],.52,.34]:["case",["==",["get","id"],id],.34,.12]);
   mapa.setPaintProperty("territorios-line","line-width",["case",["==",["get","id"],id],4,2]);
   mapa.setPaintProperty("territorios-line","line-opacity",["case",["==",["get","id"],id],1,.82]);
   mapa.setFilter("territorios-selected",["==",["get","id"],id]);
+  ["cuadras-fill","cuadras-line","cuadras-labels"].forEach((layer)=>{if(mapa?.getLayer(layer))mapa.setFilter(layer,["==",["get","territorioId"],id]);});
+  cuadraSeleccionada=null;
+  document.querySelector("#block-editor")?.classList.add("hidden");
   const points=feature.geometry.coordinates[0] as number[][];
   const bounds=points.reduce((result,point)=>result.extend(point as [number,number]),new LngLatBounds(points[0] as [number,number],points[0] as [number,number]));
   const mobile=window.innerWidth<=760;
@@ -216,7 +248,7 @@ function panelTerritorio(territorio: Territorio, m: ReturnType<typeof metricasTe
   const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
   return `<div class="detail-head"><div><span class="eyebrow">DETALLE ACTUAL</span><h2>Territorio ${territorio.id}</h2></div><span class="category-badge" style="--badge:${colorCategoria[territorio.categoria]}"><i></i>${territorio.categoria}</span></div>
     <div class="attention-card ${estadoClase}"><div><span>Estado de atencion</span><strong>${m.estado}</strong><small>${m.ultima ? `Ultima salida hace ${diasDesde(m.ultima.fecha)} dias` : "No hay registros"}</small></div><i class="attention-light"></i></div>
-    <div class="coverage-card"><div class="coverage-copy"><span>Cobertura del mes</span><strong>${m.cobertura}%</strong><small>Suma aproximada de zonas trabajadas</small></div><div class="ring" style="--value:${m.cobertura * 3.6}deg;--ring:${colorCategoria[territorio.categoria]}"><span>${m.cobertura}</span></div></div>
+    <div class="coverage-card"><div class="coverage-copy"><span>Cobertura actual</span><strong>${m.cobertura}%</strong><small>${m.coberturaFuente === "cuadras" ? `${m.cuadrasCompletadas} de ${m.cuadrasTotal} cuadras completas${m.cuadrasRevisar ? " · división a revisar" : ""}` : "Estimación de las salidas del mes"}</small></div><div class="ring" style="--value:${m.cobertura * 3.6}deg;--ring:${colorCategoria[territorio.categoria]}"><span>${m.cobertura}</span></div></div>
     <div class="detail-metrics"><article><span>Salidas</span><strong>${m.actuales.length}</strong><small>${m.anteriores.length} el mes anterior</small></article><article><span>Apoyo promedio</span><strong>${m.apoyo}</strong><small>hermanos por salida</small></article><article><span>Revisitas</span><strong>${m.revisitas}</strong><small>registradas</small></article><article><span>Cursos</span><strong>${m.cursos}</strong><small>informados</small></article></div>
     <div class="recent-list"><div class="section-title"><span>Salidas recientes</span><button id="new-record-inline" ${puedeEditar ? "" : "disabled"}>+ Agregar</button></div>${m.registros.sort((a,b)=>b.fecha.localeCompare(a.fecha)).slice(0,4).map((r)=>`<div class="record-row"><time>${fechaCorta.format(new Date(`${r.fecha}T12:00:00`))}</time><div><strong>${r.modalidad}</strong><small>${r.hermanos} hermanos · ${r.cobertura}% cobertura</small></div>${r.demo ? '<span class="demo-tag">DEMO</span>' : '<span class="real-tag">REAL</span>'}</div>`).join("") || '<p class="empty">Todavia no hay salidas registradas.</p>'}</div>
     <button class="primary-action" id="new-record-detail" ${puedeEditar ? "" : "disabled"}>Registrar una salida <span>→</span></button>
@@ -250,6 +282,44 @@ function panelInforme(g: ReturnType<typeof datosGlobales>) {
     <div class="report-section"><strong>Atencion territorial</strong>${(["Al dia","Atencion","Atrasado"] as Estado[]).map(e=>{const n=territorios.filter(t=>estadoTerritorio(registrosDe(t.id))===e).length;return `<div class="report-line"><span><i class="status-dot ${e==="Al dia"?"current":e==="Atencion"?"warning":"late"}"></i>${e}</span><b>${n}</b></div>`}).join("")}</div>
     <div class="privacy-box"><strong>Criterio de las métricas</strong><p>Período: mes calendario. Cobertura global: territorios con al menos una salida / 96. Apoyo: promedio de asistentes informados por salida. No se guardan nombres de publicadores.</p></div>
     ${estadoDatos.modo === "local" ? '<button id="restore-demo" class="reset-button danger">Restaurar datos demostrativos</button>' : ""}`;
+}
+
+function cuadrasConEstado() {
+  if (!geometriasCuadras) return null;
+  const progresos = new globalThis.Map(datosAplicacion.progresoCuadras.map((item) => [item.id, item]));
+  return {
+    ...geometriasCuadras,
+    features: geometriasCuadras.features.map((feature:any) => {
+      const progreso = progresos.get(String(feature.properties?.id));
+      return { ...feature, properties: { ...feature.properties, estado: progreso?.estado ?? "Pendiente", fechaEstado: progreso?.fecha ?? "" } };
+    }),
+  };
+}
+
+function mostrarEditorCuadra(id: string) {
+  cuadraSeleccionada = id;
+  const actual = document.querySelector<HTMLElement>("#block-editor");
+  if (actual) actual.outerHTML = editorCuadra();
+  bindBlockEditor();
+}
+
+function bindBlockEditor() {
+  document.querySelector("#close-block-editor")?.addEventListener("click",()=>{cuadraSeleccionada=null;document.querySelector("#block-editor")?.classList.add("hidden");});
+  document.querySelectorAll<HTMLButtonElement>("[data-block-state]").forEach((boton)=>boton.addEventListener("click",async()=>{
+    const id=cuadraSeleccionada;
+    const feature=geometriasCuadras?.features?.find((item:any)=>String(item.properties?.id)===id);
+    if(!id||!feature)return;
+    try{
+      await actualizarCuadra(id,Number(feature.properties.territorioId),boton.dataset.blockState as EstadoCuadra);
+      refrescarDatosLocales();
+      const source=mapa?.getSource("cuadras") as any;
+      source?.setData(cuadrasConEstado());
+      mostrarEditorCuadra(id);
+      const resumen=document.querySelector<HTMLElement>(".block-summary");
+      const territorio=territorios.find((item)=>item.id===Number(feature.properties.territorioId));
+      if(resumen&&territorio){const metrica=metricasTerritorio(territorio);resumen.textContent=`${metrica.cuadrasCompletadas}/${metrica.cuadrasTotal} cuadras completadas${metrica.cuadrasRevisar?" · revisar división":""}`;}
+    }catch(error){mostrarError(error);}
+  }));
 }
 
 function iniciarMapa(visibles: Territorio[]) {
@@ -316,7 +386,26 @@ function iniciarMapa(visibles: Territorio[]) {
       mapa.addLayer({id:"territorios-status",type:"circle",source:"centros",paint:{
         "circle-radius":["interpolate",["linear"],["zoom"],12,2.5,17,4],"circle-color":["get","statusColor"],"circle-stroke-color":"#fff","circle-stroke-width":1.5,"circle-translate":[10,-10],
       }});
-      const seleccionar=(event:any)=>{const id=Number(event.features?.[0]?.properties?.id);if(id)enfocarTerritorio(id);};
+      const blocksData=cuadrasConEstado();
+      if(blocksData){
+        mapa.addSource("cuadras",{type:"geojson",data:blocksData as any});
+        const blockFilter=["==",["get","territorioId"],seleccionado] as any;
+        mapa.addLayer({id:"cuadras-fill",type:"fill",source:"cuadras",minzoom:14.6,filter:blockFilter,paint:{
+          "fill-color":["match",["get","estado"],"Completada","#35a768","En curso","#f0a52b","#ffffff"],
+          "fill-opacity":["match",["get","estado"],"Completada",.5,"En curso",.5,.25],
+        }});
+        mapa.addLayer({id:"cuadras-line",type:"line",source:"cuadras",minzoom:14.2,filter:blockFilter,paint:{
+          "line-color":["match",["get","estado"],"Completada","#247a49","En curso","#a86c0b","#52605a"],"line-width":2,"line-dasharray":[2,1],"line-opacity":.9,
+        }});
+        mapa.addLayer({id:"cuadras-labels",type:"symbol",source:"cuadras",minzoom:15.2,filter:blockFilter,layout:{
+          "text-field":["concat","C",["to-string",["get","numero"]]],"text-font":["Noto Sans Bold"],"text-size":11,"text-allow-overlap":false,
+        },paint:{"text-color":"#25302a","text-halo-color":"rgba(255,255,255,.95)","text-halo-width":2}});
+        mapa.on("click","cuadras-fill",(event:any)=>{const id=String(event.features?.[0]?.properties?.id||"");if(id)mostrarEditorCuadra(id);});
+        mapa.on("mouseenter","cuadras-fill",()=>{if(mapa)mapa.getCanvas().style.cursor="pointer";});
+        mapa.on("mouseleave","cuadras-fill",()=>{if(mapa)mapa.getCanvas().style.cursor="";});
+        if(cuadraSeleccionada)setTimeout(()=>mostrarEditorCuadra(cuadraSeleccionada!),0);
+      }
+      const seleccionar=(event:any)=>{if(mapa?.getLayer("cuadras-fill")&&mapa.queryRenderedFeatures(event.point,{layers:["cuadras-fill"]}).length)return;const id=Number(event.features?.[0]?.properties?.id);if(id)enfocarTerritorio(id);};
       mapa.on("click","territorios-fill",seleccionar);
       mapa.on("mouseenter","territorios-fill",()=>{if(mapa)mapa.getCanvas().style.cursor="pointer";});
       mapa.on("mouseleave","territorios-fill",()=>{if(mapa)mapa.getCanvas().style.cursor="";});
@@ -341,7 +430,7 @@ function modalRegistro() {
   const fechaHoy = HOY.toISOString().slice(0,10);
   const opciones = territorios.map(t=>`<option value="${t.id}" ${t.id===seleccionado?"selected":""}>Territorio ${t.id}</option>`).join("");
   const modalidades: Modalidad[]=["Casa en casa","Revisitas","Exhibidores","Cartas","Telefonica","Informal"];
-  return `<dialog id="record-dialog"><form id="record-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">NUEVO REGISTRO</span><h2>Registrar salida</h2></div><button type="button" id="close-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">Registra cantidades generales. No incluyas nombres ni informacion personal.</p><div class="form-grid"><label>Fecha<input required name="fecha" type="date" value="${fechaHoy}"></label><label>Territorio<select name="territorioId">${opciones}</select></label><label>Hermanos que participaron<input required name="hermanos" type="number" min="1" max="99" value="4"></label><label>Modalidad<select name="modalidad">${modalidades.map(m=>`<option>${m}</option>`).join("")}</select></label><label>Cobertura aproximada (%)<input required name="cobertura" type="number" min="0" max="100" value="50"></label><label>Revisitas realizadas<input required name="revisitas" type="number" min="0" value="0"></label><label>Cursos bíblicos<input required name="cursos" type="number" min="0" value="0"></label><label class="full">Observacion general<textarea name="observacion" maxlength="180" placeholder="Ej.: se completo el sector norte"></textarea></label></div><div class="modal-actions"><button type="button" id="cancel-dialog">Cancelar</button><button type="submit">Guardar salida</button></div></form></dialog>`;
+  return `<dialog id="record-dialog"><form id="record-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">NUEVO REGISTRO</span><h2>Registrar salida</h2></div><button type="button" id="close-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">Registra cantidades generales. No incluyas nombres ni informacion personal.</p><div class="form-grid"><label>Fecha<input required name="fecha" type="date" value="${fechaHoy}"></label><label>Territorio<select name="territorioId">${opciones}</select></label><label>Hermanos que participaron<input required name="hermanos" type="number" min="1" max="99" value="4"></label><label>Modalidad<select name="modalidad">${modalidades.map(m=>`<option>${m}</option>`).join("")}</select></label><label>Cobertura aproximada si no marcás cuadras (%)<input required name="cobertura" type="number" min="0" max="100" value="50"></label><label>Revisitas realizadas<input required name="revisitas" type="number" min="0" value="0"></label><label>Cursos bíblicos<input required name="cursos" type="number" min="0" value="0"></label><label class="full">Observacion general<textarea name="observacion" maxlength="180" placeholder="Ej.: se completo el sector norte"></textarea></label></div><div class="modal-actions"><button type="button" id="cancel-dialog">Cancelar</button><button type="submit">Guardar salida</button></div></form></dialog>`;
 }
 
 function modalAsignacion() {
@@ -374,6 +463,7 @@ function mostrarError(error: unknown) {
 }
 
 function bindEvents() {
+  bindBlockEditor();
   document.querySelectorAll<HTMLButtonElement>("[data-panel]").forEach(b=>b.addEventListener("click",()=>{panelActivo=b.dataset.panel as Panel;render();}));
   document.querySelectorAll<HTMLButtonElement>("[data-category]").forEach(b=>b.addEventListener("click",()=>{categoriaActiva=b.dataset.category as Categoria|"Todas";render();}));
   document.querySelectorAll<HTMLButtonElement>("[data-select]").forEach(b=>b.addEventListener("click",()=>{seleccionado=Number(b.dataset.select);panelActivo="estadisticas";render();}));
@@ -403,5 +493,6 @@ function bindEvents() {
 }
 
 render();
+fetch(`${import.meta.env.BASE_URL}cuadras.geojson`).then((response)=>response.ok?response.json():null).then((data)=>{if(data){geometriasCuadras=data;render();}}).catch((error)=>console.warn("No se pudieron cargar las cuadras",error));
 iniciarBackend((datos)=>{datosAplicacion=datos;render();},(estado)=>{estadoDatos=estado;render();},(sesion)=>{usuario=sesion;render();});
 if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(()=>undefined));

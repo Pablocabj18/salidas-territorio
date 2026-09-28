@@ -1,6 +1,6 @@
-const CACHE = "territorios-shell-v3";
+const CACHE = "territorios-shell-v4";
 const BASE = new URL("./", self.registration.scope).pathname;
-const SHELL = [BASE, `${BASE}territorios.geojson`, `${BASE}manifest.webmanifest`, `${BASE}app-icon.svg`];
+const SHELL = [BASE, `${BASE}territorios.geojson`, `${BASE}cuadras.geojson`, `${BASE}manifest.webmanifest`, `${BASE}app-icon.svg`];
 
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()));

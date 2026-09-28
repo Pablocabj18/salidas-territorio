@@ -41,6 +41,14 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /progresoCuadras/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && validTerritory(request.resource.data.territorioId)
+        && request.resource.data.estado in ['En curso', 'Completada'];
+      allow delete: if isAdmin();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }
