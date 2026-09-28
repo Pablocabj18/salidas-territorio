@@ -1,10 +1,10 @@
 import { asignacionesDemo, campanasDemo, registrosDemo } from "../data/demo";
-import type { Asignacion, Campana, DatosAplicacion, ProgresoCuadra, RegistroSalida } from "../types/domain";
+import type { Asignacion, Campana, ConfiguracionOperacion, DatosAplicacion, ProgresoCuadra, RegistroSalida, ReservaTerritorial, SolicitudTerritorio } from "../types/domain";
 
 const STORAGE_KEY = "sf-territorios-datos-v3";
 
 function iniciales(): DatosAplicacion {
-  return { registros: registrosDemo(), asignaciones: asignacionesDemo(), campanas: campanasDemo(), progresoCuadras: [] };
+  return { registros: registrosDemo(), asignaciones: asignacionesDemo(), campanas: campanasDemo(), progresoCuadras: [], solicitudes: [], reservas: [], configuracion: [] };
 }
 
 export function obtenerDatosLocales(): DatosAplicacion {
@@ -21,6 +21,9 @@ export function obtenerDatosLocales(): DatosAplicacion {
       asignaciones: datos.asignaciones ?? asignacionesDemo(),
       campanas: datos.campanas ?? campanasDemo(),
       progresoCuadras: datos.progresoCuadras ?? [],
+      solicitudes: datos.solicitudes ?? [],
+      reservas: datos.reservas ?? [],
+      configuracion: datos.configuracion ?? [],
     };
   } catch {
     return iniciales();
@@ -64,8 +67,43 @@ export function actualizarCampanaLocal(campana: Campana) {
 
 export function actualizarCuadraLocal(progreso: ProgresoCuadra) {
   const datos = obtenerDatosLocales();
-  datos.progresoCuadras = datos.progresoCuadras.filter((item) => item.id !== progreso.id);
-  if (progreso.estado !== "Pendiente") datos.progresoCuadras.push(progreso);
+  const anterior = datos.progresoCuadras.find((item) => item.id === progreso.id);
+  progreso.historial = [...(anterior?.historial ?? []), { estado: progreso.estado, fecha: progreso.fecha, registradoEn: progreso.actualizadoEn ?? new Date().toISOString() }].slice(-12);
+  datos.progresoCuadras = [...datos.progresoCuadras.filter((item) => item.id !== progreso.id), progreso];
+  guardarDatosLocales(datos);
+}
+
+export function crearSolicitudLocal(solicitud: SolicitudTerritorio) {
+  const datos = obtenerDatosLocales();
+  datos.solicitudes.push(solicitud);
+  guardarDatosLocales(datos);
+}
+
+export function resolverSolicitudLocal(id: string, estado: "Aprobada" | "Rechazada") {
+  const datos = obtenerDatosLocales();
+  const solicitud = datos.solicitudes.find((item) => item.id === id);
+  if (!solicitud) throw new Error("Solicitud no encontrada.");
+  const hoy = new Date().toISOString().slice(0, 10);
+  const ocupadas = datos.reservas.filter((item) => solicitud.cuadraIds.includes(item.cuadraId) && item.hasta >= hoy && item.solicitudId !== id);
+  if (estado === "Aprobada" && ocupadas.length) throw new Error("Una o más cuadras ya están reservadas.");
+  solicitud.estado = estado;
+  solicitud.resueltoEn = new Date().toISOString();
+  if (estado === "Aprobada") datos.reservas.push(...solicitud.cuadraIds.map((cuadraId): ReservaTerritorial => ({ id: cuadraId, solicitudId:id, territorioId:solicitud.territorioId, cuadraId, desde:solicitud.desde, hasta:solicitud.hasta, estado:"Reservada" })));
+  guardarDatosLocales(datos);
+}
+
+export function cerrarSolicitudLocal(id: string, estado: "Completada" | "Cancelada") {
+  const datos = obtenerDatosLocales();
+  const solicitud = datos.solicitudes.find((item) => item.id === id);
+  if (!solicitud) throw new Error("Solicitud no encontrada.");
+  solicitud.estado = estado;
+  datos.reservas = datos.reservas.filter((item) => item.solicitudId !== id);
+  guardarDatosLocales(datos);
+}
+
+export function guardarConfiguracionLocal(configuracion: ConfiguracionOperacion) {
+  const datos = obtenerDatosLocales();
+  datos.configuracion = [configuracion];
   guardarDatosLocales(datos);
 }
 

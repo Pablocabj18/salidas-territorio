@@ -11,13 +11,16 @@ Aplicación web para explorar, planificar y medir los 96 territorios asignados d
 - asignaciones por fecha, hora, grupo y punto de encuentro;
 - campaña activa con avance por territorio;
 - 403 cuadras seleccionables, con estado pendiente, en curso o completada;
+- solicitudes personales de un territorio completo o de cuadras elegidas;
+- aprobación administrativa, reservas visibles sin publicar la identidad y prevención de cruces;
+- historial breve por cuadra y cobertura reiniciable por mes, campaña o fecha manual;
 - prioridades y programa territorial imprimible;
 - informe mensual con criterios de cálculo visibles;
 - instalación como aplicación (PWA) y caché de la interfaz;
 - Firebase/Firestore opcional para compartir datos entre todos los dispositivos;
-- acceso de escritura limitado a administradores.
+- acceso general de escritura limitado a administradores; quien tiene una reserva aprobada puede actualizar únicamente sus cuadras.
 
-La aplicación no guarda nombres de publicadores. “Participaciones” es la suma de asistentes informados en cada salida; no representa personas únicas.
+La aplicación no guarda listas de publicadores. El alias y la nota de una solicitud son datos privados visibles únicamente para quien la creó y los administradores. El mapa público muestra solo qué cuadras están reservadas y hasta cuándo. “Participaciones” es la suma de asistentes informados en cada salida; no representa personas únicas.
 
 ## Ejecutar localmente
 
@@ -51,7 +54,18 @@ Colecciones usadas:
 - `asignaciones`: programa operativo sin nombres personales;
 - `campanas`: alcance y territorios completados;
 - `progresoCuadras`: estado y fecha de cada cuadra, usando su identificador estable;
+- `solicitudes`: pedido privado, alcance, período y estado;
+- `reservas`: versión pública sin identidad para pintar el mapa;
+- `reservasPrivadas`: relación entre la reserva y el UID, protegida por reglas;
+- `configuracion`: período desde el cual se calcula la cobertura por cuadras;
 - `administradores`: lista privada de UID autorizados.
+
+Flujo de una solicitud:
+
+1. La persona inicia sesión, elige un territorio completo o algunas cuadras y define hasta qué fecha lo usará.
+2. Un administrador aprueba o rechaza el pedido desde Planificación.
+3. Al aprobar, Firestore crea todas las reservas en una transacción; si una cuadra ya está ocupada, no se aprueba parcialmente.
+4. La persona puede marcar sus cuadras como pendientes, en curso o completadas y luego finalizar o devolver la reserva.
 
 ## Geometría y procedencia
 

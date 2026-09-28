@@ -6,17 +6,21 @@ import { categorias, colorCategoria, territorios } from "./data/territorios";
 import {
   actualizarCampana,
   actualizarCuadra,
+  cerrarSolicitud,
   cerrarSesion,
+  crearSolicitud,
   firebaseConfigurado,
   guardarAsignacion,
   guardarCampana,
+  guardarConfiguracion,
   guardarRegistro,
   iniciarBackend,
   iniciarSesion,
+  resolverSolicitud,
 } from "./services/backend";
 import { obtenerDatosLocales, restaurarDemo } from "./services/registros";
 import { diasTranscurridos, diferenciaPorcentual, perteneceAlMes, promedio } from "./services/metricas";
-import type { Categoria, DatosAplicacion, EstadoCuadra, EstadoDatos, Modalidad, RegistroSalida, Territorio, UsuarioSesion } from "./types/domain";
+import type { AlcanceSolicitud, Categoria, ConfiguracionOperacion, DatosAplicacion, EstadoCuadra, EstadoDatos, Modalidad, RegistroSalida, SolicitudTerritorio, Territorio, UsuarioSesion } from "./types/domain";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 setWorkerUrl(workerUrl);
@@ -46,6 +50,7 @@ let datosAplicacion: DatosAplicacion = obtenerDatosLocales();
 let estadoDatos: EstadoDatos = { modo: "local", conectado: true, configurado: firebaseConfigurado, mensaje: "Cargando datos" };
 let usuario: UsuarioSesion | null = null;
 let modoCampana = false;
+let tarjetaMinimizada = window.innerWidth <= 760;
 
 const fechaCorta = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
 const mesNombre = new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric" });
@@ -72,6 +77,36 @@ function estadoTerritorio(registros: RegistroSalida[]): Estado {
 function registrosDe(id: number) { return datosAplicacion.registros.filter((r) => r.territorioId === id); }
 function enMes(registro: RegistroSalida, desplazamiento = 0) { return perteneceAlMes(registro, HOY, desplazamiento); }
 
+function configuracionCobertura(): ConfiguracionOperacion {
+  return datosAplicacion.configuracion.find((item) => item.id === "operacion") ?? {
+    id: "operacion",
+    modoCobertura: "Manual",
+    coberturaDesde: "2000-01-01",
+  };
+}
+
+function inicioCobertura() {
+  const config = configuracionCobertura();
+  if (config.modoCobertura === "Mensual") return new Date(HOY.getFullYear(), HOY.getMonth(), 1, 12).toISOString().slice(0, 10);
+  if (config.modoCobertura === "Campaña") return datosAplicacion.campanas.find((item) => item.activa)?.desde ?? config.coberturaDesde;
+  return config.coberturaDesde;
+}
+
+function reservaActiva(cuadraId: string) {
+  const hoy = HOY.toISOString().slice(0, 10);
+  return datosAplicacion.reservas.find((item) => item.cuadraId === cuadraId && item.hasta >= hoy);
+}
+
+function solicitudPropiaPara(cuadraId: string) {
+  const hoy = HOY.toISOString().slice(0,10);
+  if (estadoDatos.modo === "local") return datosAplicacion.solicitudes.find((item) => item.estado === "Aprobada" && item.hasta >= hoy && item.cuadraIds.includes(cuadraId));
+  return datosAplicacion.solicitudes.find((item) => item.estado === "Aprobada" && item.hasta >= hoy && item.solicitadoPorUid === usuario?.uid && item.cuadraIds.includes(cuadraId));
+}
+
+function puedeEditarCuadra(cuadraId: string) {
+  return estadoDatos.modo === "local" || usuario?.rol === "administrador" || Boolean(solicitudPropiaPara(cuadraId));
+}
+
 function metricasTerritorio(territorio: Territorio) {
   const registros = registrosDe(territorio.id);
   const actuales = registros.filter((r) => enMes(r));
@@ -79,7 +114,11 @@ function metricasTerritorio(territorio: Territorio) {
   const ultima = [...registros].sort((a, b) => b.fecha.localeCompare(a.fecha))[0];
   const cuadras = geometriasCuadras?.features?.filter((feature:any) => Number(feature.properties?.territorioId) === territorio.id) ?? [];
   const progresos = new globalThis.Map(datosAplicacion.progresoCuadras.map((item) => [item.id, item]));
-  const cuadrasCompletadas = cuadras.filter((feature:any) => progresos.get(String(feature.properties?.id))?.estado === "Completada").length;
+  const desde = inicioCobertura();
+  const cuadrasCompletadas = cuadras.filter((feature:any) => {
+    const progreso = progresos.get(String(feature.properties?.id));
+    return progreso?.estado === "Completada" && progreso.fecha >= desde;
+  }).length;
   const cuadrasRevisar = cuadras.some((feature:any) => feature.properties?.needsReview === true);
   const coberturaCuadras = cuadras.length ? Math.round(cuadrasCompletadas / cuadras.length * 100) : null;
   return {
@@ -137,7 +176,7 @@ function render() {
         <button id="new-record-top" class="header-primary" aria-label="Registrar salida" ${puedeEditar ? "" : "disabled"}>+ Registrar salida</button>
       </div>
     </header>
-    <main class="dashboard ${panelActivo === "mapa" ? "map-mode" : ""}">
+    <main class="dashboard ${panelActivo === "mapa" ? "map-mode" : ""} ${tarjetaMinimizada ? "selection-collapsed" : ""}">
       <aside class="sidebar">
         <div class="sidebar-heading"><div><span class="eyebrow">EXPLORAR</span><h1>Territorios</h1></div><span class="count">${filtrados.length}/96</span></div>
         <label class="search"><span>⌕</span><input id="search" value="${busqueda}" inputmode="numeric" placeholder="Buscar por numero" aria-label="Buscar territorio por numero"></label>
@@ -167,7 +206,7 @@ function render() {
       </section>
       <aside class="detail-panel">${panelActivo === "mapa" ? panelMapa(actual, metrica) : panelActivo === "estadisticas" ? panelTerritorio(actual, metrica) : panelActivo === "planificacion" ? panelPlanificacion() : panelInforme(global)}</aside>
     </main>
-    ${modalRegistro()}${modalAsignacion()}${modalCampana()}`;
+    ${modalRegistro()}${modalAsignacion()}${modalCampana()}${modalSolicitud()}`;
   iniciarMapa(filtrados);
   bindEvents();
 }
@@ -191,10 +230,12 @@ function panelMapa(territorio: Territorio, m: ReturnType<typeof metricasTerritor
   const campana = datosAplicacion.campanas.find((item) => item.activa);
   const completado = campana?.completados.includes(territorio.id);
   const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
-  return `<div class="map-selection-card">
+  const reservadas = datosAplicacion.reservas.filter((item) => item.territorioId === territorio.id && item.hasta >= HOY.toISOString().slice(0,10)).length;
+  return `<div class="map-selection-card ${tarjetaMinimizada ? "collapsed" : ""}">
+    <button id="toggle-selection-card" class="selection-toggle" aria-label="${tarjetaMinimizada ? "Expandir" : "Minimizar"} ficha">${tarjetaMinimizada ? "⌃" : "⌄"}</button>
     <div class="selection-color" style="--selection:${colorCategoria[territorio.categoria]}"></div>
-    <div class="selection-main"><span class="eyebrow">SELECCION ACTUAL</span><h2>Territorio ${territorio.id}</h2><p><i class="status-dot ${estadoClase}"></i>${m.estado}${m.ultima ? ` · ultima salida hace ${diasDesde(m.ultima.fecha)} dias` : " · sin registros"}</p>${m.cuadrasTotal ? `<small class="block-summary">${m.cuadrasCompletadas}/${m.cuadrasTotal} cuadras completadas${m.cuadrasRevisar ? " · revisar división" : ""}</small>` : ""}</div>
-    <div class="selection-buttons"><button id="share-territory" class="share-action" aria-label="Compartir territorio">${icono("compartir")}</button>${modoCampana && campana ? `<button id="toggle-campaign-complete" class="campaign-complete ${completado ? "done" : ""}" ${puedeEditar ? "" : "disabled"}>${completado ? "✓ Completado" : "Marcar completo"}</button>` : ""}<button id="view-stats" class="selection-action">Ver estadísticas <span>→</span></button></div>
+    <div class="selection-main"><span class="eyebrow">SELECCION ACTUAL</span><h2>Territorio ${territorio.id}</h2><p><i class="status-dot ${estadoClase}"></i>${m.estado}${m.ultima ? ` · ultima salida hace ${diasDesde(m.ultima.fecha)} dias` : " · sin registros"}</p>${m.cuadrasTotal ? `<small class="block-summary">${m.cuadrasCompletadas}/${m.cuadrasTotal} cuadras completadas${reservadas ? ` · ${reservadas} reservadas` : ""}${m.cuadrasRevisar ? " · revisar división" : ""}</small><div class="block-legend"><span><i class="pending"></i>Pendiente</span><span><i class="progress"></i>En curso</span><span><i class="reserved"></i>Reservada</span><span><i class="complete"></i>Completa</span></div>` : ""}</div>
+    <div class="selection-buttons"><button id="share-territory" class="share-action" aria-label="Compartir territorio">${icono("compartir")}</button>${modoCampana && campana ? `<button id="toggle-campaign-complete" class="campaign-complete ${completado ? "done" : ""}" ${puedeEditar ? "" : "disabled"}>${completado ? "✓ Completado" : "Marcar completo"}</button>` : ""}<button id="request-territory" class="request-action">Solicitar</button><button id="view-stats" class="selection-action">Estadísticas <span>→</span></button></div>
   </div>`;
 }
 
@@ -202,13 +243,17 @@ function editorCuadra() {
   const feature = geometriasCuadras?.features?.find((item:any) => String(item.properties?.id) === cuadraSeleccionada);
   const progreso = datosAplicacion.progresoCuadras.find((item) => item.id === cuadraSeleccionada);
   const estado = progreso?.estado ?? "Pendiente";
-  const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
+  const reserva = cuadraSeleccionada ? reservaActiva(cuadraSeleccionada) : undefined;
+  const puedeEditar = Boolean(cuadraSeleccionada && puedeEditarCuadra(cuadraSeleccionada));
+  const historial = progreso?.historial?.slice(-3).reverse() ?? [];
   return `<aside id="block-editor" class="block-editor ${feature ? "" : "hidden"}" aria-live="polite">
     <button id="close-block-editor" class="block-close" aria-label="Cerrar cuadra">×</button>
-    <div><span class="eyebrow">CUADRA SELECCIONADA</span><strong id="block-title">${feature ? `${feature.properties.id} · Territorio ${feature.properties.territorioId}` : "Seleccioná una cuadra"}</strong><small id="block-state">Estado: ${estado}${progreso?.fecha ? ` · ${fechaCorta.format(new Date(`${progreso.fecha}T12:00:00`))}` : ""}</small></div>
+    <div><span class="eyebrow">CUADRA SELECCIONADA</span><strong id="block-title">${feature ? `${feature.properties.id} · Territorio ${feature.properties.territorioId}` : "Seleccioná una cuadra"}</strong><small id="block-state">Estado: ${estado}${progreso?.fecha ? ` · ${fechaCorta.format(new Date(`${progreso.fecha}T12:00:00`))}` : ""}</small>${reserva ? `<small class="reservation-note">Reservada hasta ${fechaCorta.format(new Date(`${reserva.hasta}T12:00:00`))}</small>` : ""}</div>
     <div class="block-state-actions">
       ${(["Pendiente","En curso","Completada"] as EstadoCuadra[]).map((item)=>`<button data-block-state="${item}" class="${estado===item?"active":""}" ${puedeEditar?"":"disabled"}>${item === "Completada" ? "✓ " : ""}${item}</button>`).join("")}
     </div>
+    ${historial.length ? `<div class="block-history"><span>Actividad reciente</span>${historial.map((item)=>`<small>${item.estado} · ${fechaCorta.format(new Date(`${item.fecha}T12:00:00`))}</small>`).join("")}</div>` : ""}
+    ${!puedeEditar && estadoDatos.modo === "firebase" ? '<p class="block-locked">Solo quien tiene la reserva o un administrador puede cambiarla.</p>' : ""}
   </aside>`;
 }
 
@@ -239,7 +284,7 @@ function enfocarTerritorio(id:number) {
   const points=feature.geometry.coordinates[0] as number[][];
   const bounds=points.reduce((result,point)=>result.extend(point as [number,number]),new LngLatBounds(points[0] as [number,number],points[0] as [number,number]));
   const mobile=window.innerWidth<=760;
-  mapa.fitBounds(bounds,{padding:mobile?{top:145,right:42,bottom:245,left:42}:{top:125,right:90,bottom:130,left:285},maxZoom:17,duration:720,essential:true});
+  mapa.fitBounds(bounds,{padding:mobile?{top:115,right:34,bottom:tarjetaMinimizada?150:270,left:34}:{top:125,right:90,bottom:130,left:285},maxZoom:17,duration:720,essential:true});
   const url=new URL(location.href);url.searchParams.set("t",String(id));history.replaceState({},"",url);
 }
 
@@ -262,25 +307,46 @@ function panelPlanificacion() {
   const campana = datosAplicacion.campanas.find((item) => item.activa);
   const porcentajeCampana = campana ? Math.round(campana.completados.length / Math.max(1, campana.territorioIds.length) * 100) : 0;
   const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
+  const puedeSolicitar = estadoDatos.modo === "local" || Boolean(usuario);
+  const solicitudes = [...datosAplicacion.solicitudes].sort((a,b)=>b.creadoEn.localeCompare(a.creadoEn)).slice(0,8);
   return `<div class="detail-head"><div><span class="eyebrow">ORGANIZACIÓN</span><h2>Planificación</h2></div><button id="print-program" class="print-button">Programa</button></div>
     ${campana ? `<div class="campaign-card"><div class="campaign-heading"><span>CAMPAÑA ACTIVA</span><b>${escaparHtml(campana.nombre)}</b></div><strong>${campana.completados.length}<small>/${campana.territorioIds.length}</small></strong><div class="report-progress"><i style="width:${porcentajeCampana}%"></i></div><p>${porcentajeCampana}% completado · ${formatearRango(campana.desde, campana.hasta)}</p></div>` : '<div class="empty-campaign"><strong>Sin campaña activa</strong><p>Podés crear una para seguir el avance territorial.</p></div>'}
     <div class="section-title"><span>Próximas asignaciones</span><button id="new-assignment" ${puedeEditar ? "" : "disabled"}>+ Agregar</button></div>
     <div class="assignment-list">${proximas.map((item) => `<button data-select="${item.territorioId}" class="assignment-item"><time>${fechaCorta.format(new Date(`${item.fecha}T12:00:00`))}<b>${escaparHtml(item.hora)}</b></time><div><strong>Territorio ${item.territorioId} · ${escaparHtml(item.grupo)}</strong><small>${escaparHtml(item.puntoEncuentro || "Punto a confirmar")}</small></div>${item.demo ? '<span class="demo-tag">DEMO</span>' : ""}</button>`).join("") || '<p class="empty">No hay asignaciones próximas.</p>'}</div>
+    <div class="section-title"><span>Solicitudes personales</span><button id="request-from-planning" ${puedeSolicitar ? "" : "disabled"}>+ Solicitar T${seleccionado}</button></div>
+    <div class="request-list">${solicitudes.map(tarjetaSolicitud).join("") || `<p class="empty">${firebaseConfigurado && !usuario ? "Ingresá para solicitar y ver tus pedidos." : "Todavía no hay solicitudes."}</p>`}</div>
     <div class="planner-intro"><strong>Prioridades sugeridas</strong><p>Se ordenan por días desde la última salida y luego sirven de base al programa. Son ayudas organizativas, no evaluaciones personales.</p></div>
     <div class="priority-list">${prioridades.map(({t,m},i)=>`<button data-select="${t.id}" class="priority-item"><span class="priority-number">${i+1}</span><div><strong>Territorio ${t.id}</strong><small>${m.ultima ? `${diasDesde(m.ultima.fecha)} días sin salida` : "Sin registros"}</small></div><span class="priority-arrow">→</span></button>`).join("")}</div>
     <div class="insight-card"><span class="insight-icon">↗</span><div><strong>Territorios con apoyo bajo</strong><p>${bajoApoyo.length ? bajoApoyo.map(({t})=>t.id).join(", ") : "No se detectaron casos este mes"}</p></div></div>
     <div class="planner-actions"><button id="new-campaign" ${puedeEditar ? "" : "disabled"}>${campana ? "Nueva campaña" : "Crear campaña"}</button><button id="open-report">Ver informe</button></div>`;
 }
 
+function tarjetaSolicitud(solicitud: SolicitudTerritorio) {
+  const admin = estadoDatos.modo === "local" || usuario?.rol === "administrador";
+  const propia = estadoDatos.modo === "local" || solicitud.solicitadoPorUid === usuario?.uid;
+  const privada = admin || propia;
+  return `<article class="request-card">
+    <div class="request-card-head"><div><strong>Territorio ${solicitud.territorioId}</strong><small>${solicitud.alcance} · ${solicitud.cuadraIds.length} cuadras</small></div><span class="request-status ${solicitud.estado.toLowerCase()}">${solicitud.estado}</span></div>
+    <p>${formatearRango(solicitud.desde, solicitud.hasta)} · ${solicitud.modalidad}${privada && solicitud.aliasPrivado ? ` · ${escaparHtml(solicitud.aliasPrivado)}` : ""}</p>
+    ${privada && solicitud.observacion ? `<small class="request-note">${escaparHtml(solicitud.observacion)}</small>` : ""}
+    ${admin && solicitud.estado === "Pendiente" ? `<div class="request-actions"><button data-request-reject="${solicitud.id}">Rechazar</button><button data-request-approve="${solicitud.id}">Aprobar</button></div>` : ""}
+    ${(admin || propia) && solicitud.estado === "Aprobada" ? `<div class="request-actions"><button data-request-close="Cancelada" data-request-id="${solicitud.id}">Cancelar</button><button data-request-close="Completada" data-request-id="${solicitud.id}">Finalizar</button></div>` : ""}
+    ${propia && solicitud.estado === "Pendiente" && !admin ? `<div class="request-actions"><button data-request-close="Cancelada" data-request-id="${solicitud.id}">Cancelar solicitud</button></div>` : ""}
+  </article>`;
+}
+
 function panelInforme(g: ReturnType<typeof datosGlobales>) {
   const salidasAnt = g.anteriores.length;
   const apoyoAnt = promedio(g.anteriores.map(r=>r.hermanos));
   const nombreAnterior = new Intl.DateTimeFormat("es-AR", { month: "long" }).format(new Date(HOY.getFullYear(), HOY.getMonth()-1, 1));
+  const config = configuracionCobertura();
+  const puedeConfigurar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
   return `<div class="detail-head"><div><span class="eyebrow">RESUMEN CONGREGACIONAL</span><h2>${mesNombre.format(HOY)}</h2></div><button id="print-report" class="print-button">Imprimir</button></div>
     <div class="report-hero"><span>Cobertura territorial</span><strong>${g.territoriosMes}<small>/96</small></strong><div class="report-progress"><i style="width:${g.cobertura}%"></i></div><p>${g.cobertura}% de los territorios tuvo al menos una salida este mes.</p></div>
     <div class="report-grid"><article><span>Salidas</span><strong>${g.actuales.length}</strong><small>${diferencia(g.actuales.length,salidasAnt)}% vs. ${nombreAnterior}</small></article><article><span>Participaciones</span><strong>${g.hermanos}</strong><small>suma de asistentes por salida</small></article><article><span>Apoyo promedio</span><strong>${g.apoyo}</strong><small>${diferencia(g.apoyo,apoyoAnt)}% vs. ${nombreAnterior}</small></article><article><span>Revisitas</span><strong>${g.revisitas}</strong><small>${g.cursos} cursos</small></article></div>
     <div class="report-section"><strong>Atencion territorial</strong>${(["Al dia","Atencion","Atrasado"] as Estado[]).map(e=>{const n=territorios.filter(t=>estadoTerritorio(registrosDe(t.id))===e).length;return `<div class="report-line"><span><i class="status-dot ${e==="Al dia"?"current":e==="Atencion"?"warning":"late"}"></i>${e}</span><b>${n}</b></div>`}).join("")}</div>
-    <div class="privacy-box"><strong>Criterio de las métricas</strong><p>Período: mes calendario. Cobertura global: territorios con al menos una salida / 96. Apoyo: promedio de asistentes informados por salida. No se guardan nombres de publicadores.</p></div>
+    <div class="coverage-settings"><div><strong>Período de cuadras</strong><p>Las cuadras completadas se cuentan desde ${fechaCorta.format(new Date(`${inicioCobertura()}T12:00:00`))}.</p></div><select id="coverage-mode" ${puedeConfigurar ? "" : "disabled"}>${(["Mensual","Campaña","Manual"] as const).map((modo)=>`<option ${config.modoCobertura===modo?"selected":""}>${modo}</option>`).join("")}</select><button id="reset-coverage" ${puedeConfigurar ? "" : "disabled"}>Reiniciar hoy</button></div>
+    <div class="privacy-box"><strong>Criterio de las métricas</strong><p>Salidas y apoyo: mes calendario. Cobertura por cuadras: período configurable. No se publican nombres; las notas personales de solicitudes son privadas.</p></div>
     ${estadoDatos.modo === "local" ? '<button id="restore-demo" class="reset-button danger">Restaurar datos demostrativos</button>' : ""}`;
 }
 
@@ -291,7 +357,8 @@ function cuadrasConEstado() {
     ...geometriasCuadras,
     features: geometriasCuadras.features.map((feature:any) => {
       const progreso = progresos.get(String(feature.properties?.id));
-      return { ...feature, properties: { ...feature.properties, estado: progreso?.estado ?? "Pendiente", fechaEstado: progreso?.fecha ?? "" } };
+      const reserva = reservaActiva(String(feature.properties?.id));
+      return { ...feature, properties: { ...feature.properties, estado: progreso?.estado ?? "Pendiente", fechaEstado: progreso?.fecha ?? "", reservada: Boolean(reserva), reservaHasta: reserva?.hasta ?? "" } };
     }),
   };
 }
@@ -317,7 +384,7 @@ function bindBlockEditor() {
       mostrarEditorCuadra(id);
       const resumen=document.querySelector<HTMLElement>(".block-summary");
       const territorio=territorios.find((item)=>item.id===Number(feature.properties.territorioId));
-      if(resumen&&territorio){const metrica=metricasTerritorio(territorio);resumen.textContent=`${metrica.cuadrasCompletadas}/${metrica.cuadrasTotal} cuadras completadas${metrica.cuadrasRevisar?" · revisar división":""}`;}
+      if(resumen&&territorio){const metrica=metricasTerritorio(territorio);const reservadas=datosAplicacion.reservas.filter((item)=>item.territorioId===territorio.id&&item.hasta>=HOY.toISOString().slice(0,10)).length;resumen.textContent=`${metrica.cuadrasCompletadas}/${metrica.cuadrasTotal} cuadras completadas${reservadas?` · ${reservadas} reservadas`:""}${metrica.cuadrasRevisar?" · revisar división":""}`;}
     }catch(error){mostrarError(error);}
   }));
 }
@@ -391,11 +458,11 @@ function iniciarMapa(visibles: Territorio[]) {
         mapa.addSource("cuadras",{type:"geojson",data:blocksData as any});
         const blockFilter=["==",["get","territorioId"],seleccionado] as any;
         mapa.addLayer({id:"cuadras-fill",type:"fill",source:"cuadras",minzoom:14.6,filter:blockFilter,paint:{
-          "fill-color":["match",["get","estado"],"Completada","#35a768","En curso","#f0a52b","#ffffff"],
-          "fill-opacity":["match",["get","estado"],"Completada",.5,"En curso",.5,.25],
+          "fill-color":["case",["get","reservada"],"#7566d5",["match",["get","estado"],"Completada","#35a768","En curso","#f0a52b","#ffffff"]],
+          "fill-opacity":["case",["get","reservada"],.48,["match",["get","estado"],"Completada",.5,"En curso",.5,.25]],
         }});
         mapa.addLayer({id:"cuadras-line",type:"line",source:"cuadras",minzoom:14.2,filter:blockFilter,paint:{
-          "line-color":["match",["get","estado"],"Completada","#247a49","En curso","#a86c0b","#52605a"],"line-width":2,"line-dasharray":[2,1],"line-opacity":.9,
+          "line-color":["case",["get","reservada"],"#4f3eb6",["match",["get","estado"],"Completada","#247a49","En curso","#a86c0b","#52605a"]],"line-width":2,"line-dasharray":[2,1],"line-opacity":.9,
         }});
         mapa.addLayer({id:"cuadras-labels",type:"symbol",source:"cuadras",minzoom:15.2,filter:blockFilter,layout:{
           "text-field":["concat","C",["to-string",["get","numero"]]],"text-font":["Noto Sans Bold"],"text-size":11,"text-allow-overlap":false,
@@ -445,6 +512,20 @@ function modalCampana() {
   return `<dialog id="campaign-dialog"><form id="campaign-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">COBERTURA ESPECIAL</span><h2>Nueva campaña</h2></div><button type="button" data-close="campaign-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">La campaña incluirá los 96 territorios. Después podrás marcar cada territorio como completado desde el mapa.</p><div class="form-grid"><label class="full">Nombre<input required name="nombre" maxlength="70" placeholder="Ej.: Campaña de invitación"></label><label>Desde<input required name="desde" type="date" value="${primero}"></label><label>Hasta<input required name="hasta" type="date" value="${ultimo}"></label></div><div class="modal-actions"><button type="button" data-close="campaign-dialog">Cancelar</button><button type="submit">Crear campaña</button></div></form></dialog>`;
 }
 
+function modalSolicitud() {
+  const desde = HOY.toISOString().slice(0,10);
+  const fin = new Date(HOY); fin.setDate(fin.getDate() + 7);
+  const cuadras = geometriasCuadras?.features?.filter((item:any)=>Number(item.properties?.territorioId)===seleccionado) ?? [];
+  const alias = usuario?.nombre ?? "";
+  return `<dialog id="request-dialog"><form id="request-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">USO PERSONAL</span><h2>Solicitar territorio ${seleccionado}</h2></div><button type="button" data-close="request-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">Podés pedir el territorio completo o armarlo con algunas cuadras. Tu nombre y nota solo los ven vos y los administradores.</p><div class="form-grid">
+    <label class="full">Alcance<select name="alcance" id="request-scope"><option>Territorio completo</option><option>Cuadras seleccionadas</option></select></label>
+    <label>Desde<input required name="desde" type="date" value="${desde}"></label><label>Hasta<input required name="hasta" type="date" value="${fin.toISOString().slice(0,10)}"></label>
+    <label>Modalidad<select name="modalidad">${(["Casa en casa","Revisitas","Exhibidores","Cartas","Telefonica","Informal"] as Modalidad[]).map((item)=>`<option>${item}</option>`).join("")}</select></label><label>Alias privado<input required name="aliasPrivado" maxlength="45" value="${escaparHtml(alias)}" placeholder="Tu nombre o alias"></label>
+    <fieldset id="request-blocks" class="full request-blocks" disabled><legend>Elegí las cuadras</legend>${cuadras.map((item:any)=>`<label><input type="checkbox" name="cuadraId" value="${escaparHtml(item.properties.id)}" checked><span>C${item.properties.numero}</span></label>`).join("")}</fieldset>
+    <label class="full">Nota privada<textarea name="observacion" maxlength="180" placeholder="Ej.: salimos el sábado por la mañana"></textarea></label>
+  </div>${firebaseConfigurado && !usuario ? '<p class="login-required">Para enviar el pedido compartido primero tenés que ingresar con Google.</p>' : ""}<div class="modal-actions"><button type="button" data-close="request-dialog">Cancelar</button><button type="submit">Enviar solicitud</button></div></form></dialog>`;
+}
+
 function imprimirPrograma() {
   const yaAsignados = new Set(datosAplicacion.asignaciones.filter((item) => item.estado === "Programada").map((item) => item.territorioId));
   const sugeridos = territorios.map((t) => ({ t, dias: diasDesde(metricasTerritorio(t).ultima?.fecha) })).filter(({t}) => !yaAsignados.has(t.id)).sort((a,b) => b.dias - a.dias).slice(0,8);
@@ -469,7 +550,7 @@ function bindEvents() {
   document.querySelectorAll<HTMLButtonElement>("[data-select]").forEach(b=>b.addEventListener("click",()=>{seleccionado=Number(b.dataset.select);panelActivo="estadisticas";render();}));
   document.querySelector<HTMLInputElement>("#search")?.addEventListener("input",e=>{busqueda=(e.target as HTMLInputElement).value.replace(/\D/g,"").slice(0,2);const input=e.target as HTMLInputElement;input.value=busqueda;const t=territorios.find(t=>String(t.id)===busqueda);if(t)enfocarTerritorio(t.id);});
   document.querySelector("#reset")?.addEventListener("click",()=>{categoriaActiva="Todas";busqueda="";render();});
-  document.querySelector("#fit-map")?.addEventListener("click",()=>{const mobile=window.innerWidth<=760;mapa?.fitBounds([[GEO_BOUNDS.west,GEO_BOUNDS.south],[GEO_BOUNDS.east,GEO_BOUNDS.north]],{padding:mobile?{top:90,right:35,bottom:210,left:35}:{top:85,right:75,bottom:115,left:285}});if(mapa)mapa.setZoom(mapa.getZoom()-.7);});
+  document.querySelector("#fit-map")?.addEventListener("click",()=>{const mobile=window.innerWidth<=760;mapa?.fitBounds([[GEO_BOUNDS.west,GEO_BOUNDS.south],[GEO_BOUNDS.east,GEO_BOUNDS.north]],{padding:mobile?{top:85,right:30,bottom:tarjetaMinimizada?135:240,left:30}:{top:85,right:75,bottom:115,left:285}});if(mapa)mapa.setZoom(mapa.getZoom()-.7);});
   document.querySelector("#locate-me")?.addEventListener("click",()=>controlUbicacion?.trigger());
   document.querySelector("#campaign-map-toggle")?.addEventListener("click",()=>{modoCampana=!modoCampana;render();});
   document.querySelector("#data-status")?.addEventListener("click",()=>alert(estadoDatos.mensaje));
@@ -477,6 +558,7 @@ function bindEvents() {
   document.querySelector("#share-territory")?.addEventListener("click",async()=>{const url=new URL(location.href);url.searchParams.set("t",String(seleccionado));const data={title:`Territorio ${seleccionado}`,text:`Territorio ${seleccionado} · San Francisco`,url:url.toString()};try{if(navigator.share)await navigator.share(data);else{await navigator.clipboard.writeText(url.toString());alert("Enlace copiado");}}catch{/* compartir cancelado */}});
   document.querySelector("#open-report")?.addEventListener("click",()=>{panelActivo="informe";render();});
   document.querySelector("#view-stats")?.addEventListener("click",()=>{panelActivo="estadisticas";render();});
+  document.querySelector("#toggle-selection-card")?.addEventListener("click",()=>{tarjetaMinimizada=!tarjetaMinimizada;render();});
   document.querySelector("#print-report")?.addEventListener("click",()=>window.print());
   document.querySelector("#print-program")?.addEventListener("click",imprimirPrograma);
   document.querySelector("#restore-demo")?.addEventListener("click",()=>{if(estadoDatos.modo==="local"&&confirm("Se reemplazarán los datos locales por la demostración. ¿Continuar?")){restaurarDemo();refrescarDatosLocales();render();}});
@@ -485,11 +567,21 @@ function bindEvents() {
   ["#close-dialog","#cancel-dialog"].forEach(id=>document.querySelector(id)?.addEventListener("click",()=>dialog?.close()));
   document.querySelector("#new-assignment")?.addEventListener("click",()=>document.querySelector<HTMLDialogElement>("#assignment-dialog")?.showModal());
   document.querySelector("#new-campaign")?.addEventListener("click",()=>document.querySelector<HTMLDialogElement>("#campaign-dialog")?.showModal());
+  const abrirSolicitud=async()=>{if(firebaseConfigurado&&!usuario){try{await iniciarSesion();}catch(error){mostrarError(error);}return;}document.querySelector<HTMLDialogElement>("#request-dialog")?.showModal();};
+  document.querySelector("#request-territory")?.addEventListener("click",abrirSolicitud);
+  document.querySelector("#request-from-planning")?.addEventListener("click",abrirSolicitud);
   document.querySelectorAll<HTMLButtonElement>("[data-close]").forEach((boton)=>boton.addEventListener("click",()=>document.querySelector<HTMLDialogElement>(`#${boton.dataset.close}`)?.close()));
+  document.querySelector<HTMLSelectElement>("#request-scope")?.addEventListener("change",(event)=>{const seleccion=(event.currentTarget as HTMLSelectElement).value;const fieldset=document.querySelector<HTMLFieldSetElement>("#request-blocks");if(fieldset)fieldset.disabled=seleccion==="Territorio completo";});
+  document.querySelectorAll<HTMLButtonElement>("[data-request-approve]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await resolverSolicitud(boton.dataset.requestApprove!,"Aprobada");refrescarDatosLocales();render();}catch(error){mostrarError(error);}}));
+  document.querySelectorAll<HTMLButtonElement>("[data-request-reject]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await resolverSolicitud(boton.dataset.requestReject!,"Rechazada");refrescarDatosLocales();render();}catch(error){mostrarError(error);}}));
+  document.querySelectorAll<HTMLButtonElement>("[data-request-close]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await cerrarSolicitud(boton.dataset.requestId!,boton.dataset.requestClose as "Completada"|"Cancelada");refrescarDatosLocales();render();}catch(error){mostrarError(error);}}));
   document.querySelector("#toggle-campaign-complete")?.addEventListener("click",async()=>{const campana=datosAplicacion.campanas.find((item)=>item.activa);if(!campana)return;const completados=campana.completados.includes(seleccionado)?campana.completados.filter((id)=>id!==seleccionado):[...campana.completados,seleccionado];try{await actualizarCampana({...campana,completados});refrescarDatosLocales();render();}catch(error){mostrarError(error);}});
   document.querySelector<HTMLFormElement>("#record-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const submit=form.querySelector<HTMLButtonElement>("button[type=submit]");if(submit)submit.disabled=true;try{await guardarRegistro({fecha:String(data.get("fecha")),territorioId:Number(data.get("territorioId")),hermanos:Number(data.get("hermanos")),modalidad:String(data.get("modalidad")) as Modalidad,cobertura:Number(data.get("cobertura")),revisitas:Number(data.get("revisitas")),cursos:Number(data.get("cursos")),observacion:String(data.get("observacion")||"")});seleccionado=Number(data.get("territorioId"));panelActivo="estadisticas";dialog?.close();refrescarDatosLocales();render();}catch(error){mostrarError(error);if(submit)submit.disabled=false;}});
   document.querySelector<HTMLFormElement>("#assignment-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);try{await guardarAsignacion({fecha:String(data.get("fecha")),hora:String(data.get("hora")),territorioId:Number(data.get("territorioId")),grupo:String(data.get("grupo")),puntoEncuentro:String(data.get("puntoEncuentro")||""),estado:"Programada"});form.closest("dialog")?.close();refrescarDatosLocales();render();}catch(error){mostrarError(error);}});
   document.querySelector<HTMLFormElement>("#campaign-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const desde=String(data.get("desde"));const hasta=String(data.get("hasta"));if(hasta<desde)return alert("La fecha de finalización debe ser posterior al inicio.");try{await guardarCampana({nombre:String(data.get("nombre")),desde,hasta,territorioIds:Array.from({length:96},(_,i)=>i+1),completados:[],activa:true});form.closest("dialog")?.close();modoCampana=true;refrescarDatosLocales();render();}catch(error){mostrarError(error);}});
+  document.querySelector<HTMLFormElement>("#request-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const alcance=String(data.get("alcance")) as AlcanceSolicitud;const todas=geometriasCuadras?.features?.filter((item:any)=>Number(item.properties?.territorioId)===seleccionado).map((item:any)=>String(item.properties.id))??[];const elegidas=alcance==="Territorio completo"?todas:data.getAll("cuadraId").map(String);const desde=String(data.get("desde"));const hasta=String(data.get("hasta"));if(!elegidas.length)return alert("Elegí al menos una cuadra.");if(hasta<desde)return alert("La fecha final debe ser posterior al inicio.");try{await crearSolicitud({territorioId:seleccionado,cuadraIds:elegidas,alcance,desde,hasta,modalidad:String(data.get("modalidad")) as Modalidad,aliasPrivado:String(data.get("aliasPrivado")),observacion:String(data.get("observacion")||"")});form.closest("dialog")?.close();refrescarDatosLocales();panelActivo="planificacion";render();}catch(error){mostrarError(error);}});
+  document.querySelector<HTMLSelectElement>("#coverage-mode")?.addEventListener("change",async(event)=>{const modo=(event.currentTarget as HTMLSelectElement).value as ConfiguracionOperacion["modoCobertura"];const campana=datosAplicacion.campanas.find((item)=>item.activa);if(modo==="Campaña"&&!campana){alert("Primero creá una campaña activa.");render();return;}const coberturaDesde=modo==="Mensual"?new Date(HOY.getFullYear(),HOY.getMonth(),1,12).toISOString().slice(0,10):modo==="Campaña"?campana!.desde:configuracionCobertura().coberturaDesde;try{await guardarConfiguracion({id:"operacion",modoCobertura:modo,coberturaDesde,actualizadaEn:new Date().toISOString()});refrescarDatosLocales();render();}catch(error){mostrarError(error);}});
+  document.querySelector("#reset-coverage")?.addEventListener("click",async()=>{if(!confirm("La cobertura comenzará a contarse desde hoy. El historial no se borra. ¿Continuar?"))return;try{await guardarConfiguracion({id:"operacion",modoCobertura:"Manual",coberturaDesde:HOY.toISOString().slice(0,10),actualizadaEn:new Date().toISOString()});refrescarDatosLocales();render();}catch(error){mostrarError(error);}});
 }
 
 render();

@@ -70,6 +70,12 @@ export interface Campana {
 
 export type EstadoCuadra = "Pendiente" | "En curso" | "Completada";
 
+export interface EventoCuadra {
+  estado: EstadoCuadra;
+  fecha: string;
+  registradoEn: string;
+}
+
 export interface ProgresoCuadra {
   id: string;
   territorioId: number;
@@ -77,6 +83,46 @@ export interface ProgresoCuadra {
   fecha: string;
   actualizadoPor?: string;
   actualizadoEn?: string;
+  historial?: EventoCuadra[];
+}
+
+export type EstadoSolicitud = "Pendiente" | "Aprobada" | "Rechazada" | "Completada" | "Cancelada";
+export type AlcanceSolicitud = "Territorio completo" | "Cuadras seleccionadas";
+
+export interface SolicitudTerritorio {
+  id: string;
+  territorioId: number;
+  cuadraIds: string[];
+  alcance: AlcanceSolicitud;
+  desde: string;
+  hasta: string;
+  modalidad: Modalidad;
+  aliasPrivado: string;
+  observacion: string;
+  estado: EstadoSolicitud;
+  solicitadoPorUid: string;
+  creadoEn: string;
+  resueltoEn?: string;
+  resueltoPor?: string;
+}
+
+export interface ReservaTerritorial {
+  id: string;
+  solicitudId: string;
+  territorioId: number;
+  cuadraId: string;
+  desde: string;
+  hasta: string;
+  estado: "Reservada";
+}
+
+export type ModoCobertura = "Mensual" | "Campaña" | "Manual";
+
+export interface ConfiguracionOperacion {
+  id: "operacion";
+  modoCobertura: ModoCobertura;
+  coberturaDesde: string;
+  actualizadaEn?: string;
 }
 
 export interface EstadoDatos {
@@ -91,4 +137,7 @@ export interface DatosAplicacion {
   asignaciones: Asignacion[];
   campanas: Campana[];
   progresoCuadras: ProgresoCuadra[];
+  solicitudes: SolicitudTerritorio[];
+  reservas: ReservaTerritorial[];
+  configuracion: ConfiguracionOperacion[];
 }

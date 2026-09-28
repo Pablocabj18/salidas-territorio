@@ -12,6 +12,12 @@ service cloud.firestore {
       return id is int && id >= 1 && id <= 96;
     }
 
+    function ownsReservation(blockId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/reservasPrivadas/$(blockId))
+        && get(/databases/$(database)/documents/reservasPrivadas/$(blockId)).data.solicitadoPorUid == request.auth.uid;
+    }
+
     match /administradores/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;
       allow write: if false;
@@ -43,10 +49,44 @@ service cloud.firestore {
 
     match /progresoCuadras/{id} {
       allow read: if true;
-      allow create, update: if isAdmin()
+      allow create, update: if (isAdmin() || ownsReservation(id))
         && validTerritory(request.resource.data.territorioId)
-        && request.resource.data.estado in ['En curso', 'Completada'];
+        && request.resource.data.estado in ['Pendiente', 'En curso', 'Completada']
+        && (isAdmin() || request.resource.data.actualizadoPor == request.auth.uid);
       allow delete: if isAdmin();
+    }
+
+    match /solicitudes/{id} {
+      allow create: if request.auth != null
+        && request.resource.data.solicitadoPorUid == request.auth.uid
+        && request.resource.data.estado == 'Pendiente'
+        && validTerritory(request.resource.data.territorioId)
+        && request.resource.data.cuadraIds is list
+        && request.resource.data.cuadraIds.size() > 0;
+      allow read: if isAdmin() || (request.auth != null && resource.data.solicitadoPorUid == request.auth.uid);
+      allow update: if isAdmin() || (request.auth != null
+        && resource.data.solicitadoPorUid == request.auth.uid
+        && request.resource.data.solicitadoPorUid == resource.data.solicitadoPorUid
+        && request.resource.data.estado in ['Cancelada', 'Completada']
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['estado', 'resueltoEn']));
+      allow delete: if false;
+    }
+
+    match /reservas/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin() || ownsReservation(id);
+    }
+
+    match /reservasPrivadas/{id} {
+      allow read: if isAdmin() || (request.auth != null && resource.data.solicitadoPorUid == request.auth.uid);
+      allow create, update: if isAdmin();
+      allow delete: if isAdmin() || (request.auth != null && resource.data.solicitadoPorUid == request.auth.uid);
+    }
+
+    match /configuracion/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
     }
 
     match /{document=**} {
