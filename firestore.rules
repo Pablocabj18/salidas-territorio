@@ -1,0 +1,48 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/administradores/$(request.auth.uid))
+        && get(/databases/$(database)/documents/administradores/$(request.auth.uid)).data.activo == true;
+    }
+
+    function validTerritory(id) {
+      return id is int && id >= 1 && id <= 96;
+    }
+
+    match /administradores/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /registros/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && validTerritory(request.resource.data.territorioId)
+        && request.resource.data.hermanos is int
+        && request.resource.data.hermanos >= 1
+        && request.resource.data.hermanos <= 99
+        && request.resource.data.cobertura is int
+        && request.resource.data.cobertura >= 0
+        && request.resource.data.cobertura <= 100;
+      allow delete: if isAdmin();
+    }
+
+    match /asignaciones/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin() && validTerritory(request.resource.data.territorioId);
+      allow delete: if isAdmin();
+    }
+
+    match /campanas/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -227,3 +227,34 @@ dialog::backdrop { background:#222521a8; backdrop-filter:blur(3px); }
   .map-mode>.detail-panel { bottom:calc(74px + env(safe-area-inset-bottom)); }
   .maplibregl-ctrl-attrib { margin-bottom:62px!important; }
 }
+
+/* Sincronización, campañas y programa */
+.sync-pill,.account-button { min-height:34px;border:1px solid var(--line);border-radius:999px;background:#fff;padding:6px 10px;font-size:9px;font-weight:700;cursor:pointer;white-space:nowrap; }
+.sync-pill i { display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:6px;background:#d09b26; }
+.sync-pill.online i { background:#3f9c5e;box-shadow:0 0 0 3px #3f9c5e18; }
+.sync-pill.offline i { background:#b84b42; }
+.account-button { display:flex;align-items:center;gap:6px; }
+.account-button img { width:20px;height:20px;border-radius:50%; }
+.header-primary:disabled,.section-title button:disabled,.planner-actions button:disabled,.primary-action:disabled,.campaign-complete:disabled { opacity:.45;cursor:not-allowed; }
+.campaign-toggle { width:100%;display:flex;align-items:center;gap:9px;margin-top:12px;padding:10px;border:1px solid #d8d3c8;border-radius:10px;background:#fff;text-align:left;cursor:pointer; }
+.campaign-toggle>span { width:27px;height:27px;display:grid;place-items:center;border-radius:8px;background:#f5e7ca;color:#9b6613;font-size:17px; }
+.campaign-toggle strong,.campaign-toggle small { display:block;font-size:9px; }.campaign-toggle small{margin-top:2px;color:#777971}.campaign-toggle.active{border-color:#d49b2e;background:#fff9ec}
+.campaign-complete { border:0;border-radius:12px;padding:11px 13px;background:#f0a52b;color:#38290f;font-size:9px;font-weight:800;cursor:pointer;white-space:nowrap; }
+.campaign-complete.done { background:#dcefe2;color:#2c7446; }
+.campaign-card { padding:15px;border-radius:9px;background:#263129;color:#fff;margin-bottom:10px; }
+.campaign-card .campaign-heading span,.campaign-card .campaign-heading b { display:block; }.campaign-card .campaign-heading span{font:500 8px 'DM Mono';letter-spacing:.12em;color:#afbeb3}.campaign-card .campaign-heading b{margin-top:3px;font-size:12px}.campaign-card>strong{display:block;margin:13px 0 6px;font-size:28px}.campaign-card>strong small{font-size:12px;color:#aeb9b1}.campaign-card .report-progress{background:#4a554d}.campaign-card .report-progress i{background:#55b876}.campaign-card p{font-size:8px;color:#afbeb3;margin-top:7px}
+.empty-campaign { padding:14px;border:1px dashed #c8c2b7;border-radius:8px;margin-bottom:8px; }.empty-campaign strong{font-size:10px}.empty-campaign p{font-size:8px;color:#777971;margin-top:4px}
+.assignment-list { display:grid;gap:5px;margin-bottom:12px; }
+.assignment-item { display:grid;grid-template-columns:45px 1fr auto;align-items:center;gap:9px;width:100%;border:1px solid var(--line);border-radius:7px;background:#fff;padding:9px;text-align:left;cursor:pointer; }
+.assignment-item time { font:500 8px 'DM Mono';text-transform:uppercase;color:#777971; }.assignment-item time b{display:block;color:#20231f;margin-top:3px}.assignment-item strong,.assignment-item small{display:block;font-size:9px}.assignment-item small{color:#85877f;margin-top:3px}
+.planner-actions { display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:12px; }.planner-actions button{border:1px solid var(--line);border-radius:7px;background:#fff;padding:10px;font-size:9px;font-weight:800;cursor:pointer}.planner-actions button:last-child{background:#20231f;color:#fff;border-color:#20231f}
+
+@media (max-width:900px) {
+  .sync-pill { max-width:35px;font-size:0;padding:8px; }.sync-pill i{margin:0}.account-button span{display:none}
+}
+@media (max-width:760px) {
+  .header-actions { gap:6px; }.account-button{padding:6px 8px}.map-selection-card:has(.campaign-complete) .selection-buttons{display:grid;grid-template-columns:40px 1fr}.map-selection-card:has(.campaign-complete) .selection-action{grid-column:1/-1}.campaign-complete{width:100%}
+  .map-mode .campaign-toggle { position:absolute;top:52px;left:0;width:auto;max-width:calc(100vw - 90px);background:rgba(255,255,255,.88);backdrop-filter:blur(20px); }
+  .dashboard:not(.map-mode) .sidebar,.dashboard:not(.map-mode) .workspace { display:none; }
+  .dashboard:not(.map-mode) .detail-panel { min-height:calc(100dvh - 120px);padding:24px 16px 90px;border:0; }
+}

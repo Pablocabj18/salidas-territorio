@@ -1,51 +1,66 @@
-import type { Modalidad, RegistroSalida } from "../types/domain";
+import { asignacionesDemo, campanasDemo, registrosDemo } from "../data/demo";
+import type { Asignacion, Campana, DatosAplicacion, RegistroSalida } from "../types/domain";
 
-const STORAGE_KEY = "sf-territorios-registros-v2";
-const modalidades: Modalidad[] = ["Casa en casa", "Revisitas", "Exhibidores", "Cartas", "Telefonica", "Informal"];
+const STORAGE_KEY = "sf-territorios-datos-v3";
 
-function fechaAtras(dias: number) {
-  const fecha = new Date();
-  fecha.setHours(12, 0, 0, 0);
-  fecha.setDate(fecha.getDate() - dias);
-  return fecha.toISOString().slice(0, 10);
+function iniciales(): DatosAplicacion {
+  return { registros: registrosDemo(), asignaciones: asignacionesDemo(), campanas: campanasDemo() };
 }
 
-function registrosDemo(): RegistroSalida[] {
-  return Array.from({ length: 96 }, (_, index) => {
-    const territorioId = index + 1;
-    const cantidad = territorioId % 4 === 0 ? 3 : territorioId % 3 === 0 ? 2 : 1;
-    return Array.from({ length: cantidad }, (_, salida) => ({
-      id: `demo-${territorioId}-${salida}`,
-      fecha: fechaAtras((territorioId * 5 + salida * 17) % 72),
-      territorioId,
-      hermanos: 2 + ((territorioId + salida * 3) % 8),
-      modalidad: modalidades[(territorioId + salida) % modalidades.length],
-      cobertura: 18 + ((territorioId * 7 + salida * 13) % 72),
-      revisitas: (territorioId + salida * 2) % 7,
-      cursos: (territorioId + salida) % 5 === 0 ? 1 : 0,
-      observacion: "Registro demostrativo",
-      demo: true,
-    }));
-  }).flat();
-}
-
-export function obtenerRegistros(): RegistroSalida[] {
+export function obtenerDatosLocales(): DatosAplicacion {
   const guardados = localStorage.getItem(STORAGE_KEY);
   if (!guardados) {
-    const demo = registrosDemo();
+    const demo = iniciales();
     localStorage.setItem(STORAGE_KEY, JSON.stringify(demo));
     return demo;
   }
-  try { return JSON.parse(guardados) as RegistroSalida[]; }
-  catch { return registrosDemo(); }
+  try {
+    const datos = JSON.parse(guardados) as Partial<DatosAplicacion>;
+    return {
+      registros: datos.registros ?? registrosDemo(),
+      asignaciones: datos.asignaciones ?? asignacionesDemo(),
+      campanas: datos.campanas ?? campanasDemo(),
+    };
+  } catch {
+    return iniciales();
+  }
 }
 
-export function guardarRegistro(registro: Omit<RegistroSalida, "id">) {
-  const registros = obtenerRegistros();
-  registros.push({ ...registro, id: crypto.randomUUID(), demo: false });
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(registros));
+export function guardarDatosLocales(datos: DatosAplicacion) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(datos));
+}
+
+export function guardarRegistroLocal(registro: Omit<RegistroSalida, "id">) {
+  const datos = obtenerDatosLocales();
+  const nuevo = { ...registro, id: crypto.randomUUID(), demo: false, creadoEn: new Date().toISOString() };
+  datos.registros.push(nuevo);
+  guardarDatosLocales(datos);
+  return nuevo;
+}
+
+export function guardarAsignacionLocal(asignacion: Omit<Asignacion, "id">) {
+  const datos = obtenerDatosLocales();
+  const nueva = { ...asignacion, id: crypto.randomUUID(), demo: false, creadoEn: new Date().toISOString() };
+  datos.asignaciones.push(nueva);
+  guardarDatosLocales(datos);
+  return nueva;
+}
+
+export function guardarCampanaLocal(campana: Omit<Campana, "id">) {
+  const datos = obtenerDatosLocales();
+  const nueva = { ...campana, id: crypto.randomUUID(), demo: false, creadoEn: new Date().toISOString() };
+  datos.campanas = datos.campanas.map((item) => ({ ...item, activa: false }));
+  datos.campanas.push(nueva);
+  guardarDatosLocales(datos);
+  return nueva;
+}
+
+export function actualizarCampanaLocal(campana: Campana) {
+  const datos = obtenerDatosLocales();
+  datos.campanas = datos.campanas.map((item) => item.id === campana.id ? campana : item);
+  guardarDatosLocales(datos);
 }
 
 export function restaurarDemo() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(registrosDemo()));
+  guardarDatosLocales(iniciales());
 }
