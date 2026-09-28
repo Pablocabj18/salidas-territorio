@@ -2,7 +2,7 @@
 
 Aplicacion web para visualizar y analizar los 96 territorios asignados de San Francisco, Cordoba.
 
-El proyecto parte de un mapa territorial en PDF y busca convertirlo en una experiencia interactiva: seleccionar sectores, consultar estadisticas, aplicar filtros, comparar resultados y observar su evolucion en el tiempo.
+El proyecto parte de un mapa territorial en PDF y busca convertirlo en una experiencia interactiva: seleccionar sectores, consultar estadisticas, aplicar filtros, comparar resultados y observar su evolucion en el tiempo. El mapa usa MapLibre GL con cartografia vectorial de OpenFreeMap y datos de OpenStreetMap, sin API key.
 
 ## Alcance inicial
 
