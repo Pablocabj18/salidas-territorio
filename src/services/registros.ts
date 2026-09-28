@@ -1,10 +1,11 @@
 import type { Modalidad, RegistroSalida } from "../types/domain";
 
-const STORAGE_KEY = "sf-territorios-registros-v1";
+const STORAGE_KEY = "sf-territorios-registros-v2";
 const modalidades: Modalidad[] = ["Casa en casa", "Revisitas", "Exhibidores", "Cartas", "Telefonica", "Informal"];
 
 function fechaAtras(dias: number) {
-  const fecha = new Date("2026-08-24T12:00:00");
+  const fecha = new Date();
+  fecha.setHours(12, 0, 0, 0);
   fecha.setDate(fecha.getDate() - dias);
   return fecha.toISOString().slice(0, 10);
 }

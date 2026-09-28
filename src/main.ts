@@ -6,7 +6,7 @@ import { guardarRegistro, obtenerRegistros, restaurarDemo } from "./services/reg
 import type { Categoria, Modalidad, RegistroSalida, Territorio } from "./types/domain";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
-const HOY = new Date("2026-08-24T12:00:00");
+const HOY = new Date();
 const GEO_BOUNDS = {
   north: -31.385,
   south: -31.478,
@@ -16,7 +16,8 @@ const GEO_BOUNDS = {
 type Panel = "mapa" | "estadisticas" | "planificacion" | "informe";
 type Estado = "Al dia" | "Atencion" | "Atrasado" | "Sin datos";
 
-let seleccionado = 36;
+const territorioEnUrl = Number(new URLSearchParams(location.search).get("t"));
+let seleccionado = territorioEnUrl >= 1 && territorioEnUrl <= 96 ? territorioEnUrl : 36;
 let categoriaActiva: Categoria | "Todas" = "Todas";
 let busqueda = "";
 let panelActivo: Panel = "mapa";
@@ -103,7 +104,7 @@ function render() {
       <nav class="main-nav" aria-label="Secciones">
         ${navButton("mapa", "Mapa")}${navButton("estadisticas", "Estadisticas")}${navButton("planificacion", "Planificacion")}${navButton("informe", "Informe")}
       </nav>
-      <div class="header-actions"><span class="demo-pill"><i></i> Datos locales · demo inicial</span><button id="new-record-top" class="header-primary">+ Registrar salida</button></div>
+      <div class="header-actions"><span class="demo-pill"><i></i> En este dispositivo</span><button id="new-record-top" class="header-primary">+ Registrar salida</button></div>
     </header>
     <main class="dashboard ${panelActivo === "mapa" ? "map-mode" : ""}">
       <aside class="sidebar">
@@ -126,7 +127,7 @@ function render() {
           <article><span>Apoyo promedio</span><strong>${global.apoyo}</strong><small>hermanos por salida</small></article>
         </div>
         <div class="map-card">
-          <div class="map-toolbar"><div><span class="eyebrow">MAPA REAL · OPENSTREETMAP</span><h2>San Francisco</h2><small>Arrastra, acerca y selecciona un territorio</small></div><button id="fit-map" class="fit-map">Encuadrar mapa</button></div>
+          <div class="map-toolbar"><div><span class="eyebrow">MAPA DE TERRITORIOS</span><h2>San Francisco</h2><small>Calles reales · selecciona un sector</small></div><div class="map-tools"><button id="locate-me" class="round-map-action" aria-label="Mostrar mi ubicación" title="Mi ubicación">${icono("ubicacion")}</button><button id="fit-map" class="round-map-action" aria-label="Ver todos los territorios" title="Ver todos">${icono("encuadrar")}</button></div></div>
           <div id="territory-map" aria-label="Mapa interactivo de territorios"></div>
           <div class="map-footer"><span><i class="pulse"></i> ${filtrados.length} territorios visibles</span><span>Mapa © OpenStreetMap · posiciones territoriales preliminares</span></div>
         </div>
@@ -138,14 +139,26 @@ function render() {
   bindEvents();
 }
 
-function navButton(panel: Panel, texto: string) { return `<button data-panel="${panel}" class="nav-button ${panelActivo === panel ? "active" : ""}">${texto}</button>`; }
+function icono(nombre: "mapa"|"estadisticas"|"planificacion"|"informe"|"ubicacion"|"encuadrar"|"compartir") {
+  const paths = {
+    mapa:'<path d="m3 6 5-3 8 3 5-3v15l-5 3-8-3-5 3V6Z"/><path d="M8 3v15M16 6v15"/>',
+    estadisticas:'<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+    planificacion:'<path d="M6 3v3M18 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"/><path d="m8 14 2 2 5-5"/>',
+    informe:'<path d="M5 3h10l4 4v14H5V3Z"/><path d="M14 3v5h5M8 13h8M8 17h6"/>',
+    ubicacion:'<path d="M12 21s7-6 7-12a7 7 0 1 0-14 0c0 6 7 12 7 12Z"/><circle cx="12" cy="9" r="2.5"/>',
+    encuadrar:'<path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/>',
+    compartir:'<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.5M8.2 13.2l7.6 4.5"/>'
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[nombre]}</svg>`;
+}
+function navButton(panel: Panel, texto: string) { return `<button data-panel="${panel}" class="nav-button ${panelActivo === panel ? "active" : ""}">${icono(panel)}<span>${texto}</span></button>`; }
 
 function panelMapa(territorio: Territorio, m: ReturnType<typeof metricasTerritorio>) {
   const estadoClase = m.estado === "Al dia" ? "current" : m.estado === "Atencion" ? "warning" : "late";
   return `<div class="map-selection-card">
     <div class="selection-color" style="--selection:${colorCategoria[territorio.categoria]}"></div>
     <div class="selection-main"><span class="eyebrow">SELECCION ACTUAL</span><h2>Territorio ${territorio.id}</h2><p><i class="status-dot ${estadoClase}"></i>${m.estado}${m.ultima ? ` · ultima salida hace ${diasDesde(m.ultima.fecha)} dias` : " · sin registros"}</p></div>
-    <button id="view-stats" class="selection-action">Ver estadisticas <span>→</span></button>
+    <div class="selection-buttons"><button id="share-territory" class="share-action" aria-label="Compartir territorio">${icono("compartir")}</button><button id="view-stats" class="selection-action">Ver estadísticas <span>→</span></button></div>
   </div>`;
 }
 
@@ -185,7 +198,10 @@ function panelInforme(g: ReturnType<typeof datosGlobales>) {
 function iniciarMapa(visibles: Territorio[]) {
   mapa = L.map("territory-map", { minZoom: 11, maxZoom: 19, zoomSnap: .5, attributionControl: true, zoomControl:false }).setView(vistaMapa.centro, vistaMapa.zoom);
   L.control.zoom({ position: panelActivo === "mapa" ? "bottomright" : "topleft" }).addTo(mapa);
-  L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' }).addTo(mapa);
+  const calles = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' });
+  const contraste = L.tileLayer("https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png", { maxZoom:19, attribution:'&copy; OpenStreetMap · HOT' });
+  calles.addTo(mapa);
+  L.control.layers({ "Calles": calles, "Alto contraste": contraste }, undefined, { position:"bottomleft" }).addTo(mapa);
   const limites = L.latLngBounds([GEO_BOUNDS.south,GEO_BOUNDS.west],[GEO_BOUNDS.north,GEO_BOUNDS.east]);
   mapa.setMaxBounds(limites.pad(.35));
   const idsVisibles = new Set(visibles.map(t=>t.id));
@@ -224,9 +240,10 @@ function iniciarMapa(visibles: Territorio[]) {
 }
 
 function modalRegistro() {
+  const fechaHoy = HOY.toISOString().slice(0,10);
   const opciones = territorios.map(t=>`<option value="${t.id}" ${t.id===seleccionado?"selected":""}>Territorio ${t.id}</option>`).join("");
   const modalidades: Modalidad[]=["Casa en casa","Revisitas","Exhibidores","Cartas","Telefonica","Informal"];
-  return `<dialog id="record-dialog"><form id="record-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">NUEVO REGISTRO</span><h2>Registrar salida</h2></div><button type="button" id="close-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">Registra cantidades generales. No incluyas nombres ni informacion personal.</p><div class="form-grid"><label>Fecha<input required name="fecha" type="date" value="2026-08-24"></label><label>Territorio<select name="territorioId">${opciones}</select></label><label>Hermanos que participaron<input required name="hermanos" type="number" min="1" max="99" value="4"></label><label>Modalidad<select name="modalidad">${modalidades.map(m=>`<option>${m}</option>`).join("")}</select></label><label>Cobertura aproximada (%)<input required name="cobertura" type="number" min="0" max="100" value="50"></label><label>Revisitas realizadas<input required name="revisitas" type="number" min="0" value="0"></label><label>Cursos bíblicos<input required name="cursos" type="number" min="0" value="0"></label><label class="full">Observacion general<textarea name="observacion" maxlength="180" placeholder="Ej.: se completo el sector norte"></textarea></label></div><div class="modal-actions"><button type="button" id="cancel-dialog">Cancelar</button><button type="submit">Guardar salida</button></div></form></dialog>`;
+  return `<dialog id="record-dialog"><form id="record-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">NUEVO REGISTRO</span><h2>Registrar salida</h2></div><button type="button" id="close-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">Registra cantidades generales. No incluyas nombres ni informacion personal.</p><div class="form-grid"><label>Fecha<input required name="fecha" type="date" value="${fechaHoy}"></label><label>Territorio<select name="territorioId">${opciones}</select></label><label>Hermanos que participaron<input required name="hermanos" type="number" min="1" max="99" value="4"></label><label>Modalidad<select name="modalidad">${modalidades.map(m=>`<option>${m}</option>`).join("")}</select></label><label>Cobertura aproximada (%)<input required name="cobertura" type="number" min="0" max="100" value="50"></label><label>Revisitas realizadas<input required name="revisitas" type="number" min="0" value="0"></label><label>Cursos bíblicos<input required name="cursos" type="number" min="0" value="0"></label><label class="full">Observacion general<textarea name="observacion" maxlength="180" placeholder="Ej.: se completo el sector norte"></textarea></label></div><div class="modal-actions"><button type="button" id="cancel-dialog">Cancelar</button><button type="submit">Guardar salida</button></div></form></dialog>`;
 }
 
 function bindEvents() {
@@ -236,6 +253,20 @@ function bindEvents() {
   document.querySelector<HTMLInputElement>("#search")?.addEventListener("input",e=>{busqueda=(e.target as HTMLInputElement).value.replace(/\D/g,"").slice(0,2);const t=territorios.find(t=>String(t.id)===busqueda);if(t)seleccionado=t.id;render();document.querySelector<HTMLInputElement>("#search")?.focus();});
   document.querySelector("#reset")?.addEventListener("click",()=>{categoriaActiva="Todas";busqueda="";render();});
   document.querySelector("#fit-map")?.addEventListener("click",()=>mapa?.fitBounds([[GEO_BOUNDS.south,GEO_BOUNDS.west],[GEO_BOUNDS.north,GEO_BOUNDS.east]],{padding:[15,15]}));
+  document.querySelector("#locate-me")?.addEventListener("click",()=>{
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(({coords})=>{
+      if (!mapa) return;
+      const punto:L.LatLngExpression=[coords.latitude,coords.longitude];
+      mapa.setView(punto,16);
+      L.circleMarker(punto,{radius:8,color:"#fff",weight:3,fillColor:"#147cff",fillOpacity:1}).addTo(mapa).bindTooltip("Tu ubicación").openTooltip();
+    },()=>alert("No pudimos acceder a tu ubicación. Revisa el permiso del navegador."),{enableHighAccuracy:true,timeout:10000});
+  });
+  document.querySelector("#share-territory")?.addEventListener("click",async()=>{
+    const url=new URL(location.href);url.searchParams.set("t",String(seleccionado));
+    const data={title:`Territorio ${seleccionado}`,text:`Territorio ${seleccionado} · San Francisco`,url:url.toString()};
+    try { if(navigator.share) await navigator.share(data); else { await navigator.clipboard.writeText(url.toString()); alert("Enlace copiado"); } } catch { /* compartir cancelado */ }
+  });
   document.querySelector("#open-report")?.addEventListener("click",()=>{panelActivo="informe";render();});
   document.querySelector("#view-stats")?.addEventListener("click",()=>{panelActivo="estadisticas";render();});
   document.querySelector("#print-report")?.addEventListener("click",()=>window.print());
