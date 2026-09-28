@@ -25,6 +25,7 @@ let busqueda = "";
 let panelActivo: Panel = "mapa";
 let mapa: Map | null = null;
 let controlUbicacion: GeolocateControl | null = null;
+let geometriasTerritorios: any = null;
 let vistaMapa: { centro: [number, number]; zoom: number } = { centro: [-62.10888, -31.41975], zoom: 14 };
 let mapaInicializado = false;
 
@@ -160,6 +161,30 @@ function panelMapa(territorio: Territorio, m: ReturnType<typeof metricasTerritor
   </div>`;
 }
 
+function enfocarTerritorio(id:number) {
+  const territorio=territorios.find(item=>item.id===id);
+  const feature=geometriasTerritorios?.features?.find((item:any)=>Number(item.properties?.id)===id);
+  if(!territorio||!mapa||!feature) return;
+  seleccionado=id;
+  const metrica=metricasTerritorio(territorio);
+  const estadoClase=metrica.estado==="Al dia"?"current":metrica.estado==="Atencion"?"warning":"late";
+  const heading=document.querySelector<HTMLElement>(".selection-main h2");
+  const status=document.querySelector<HTMLElement>(".selection-main p");
+  const color=document.querySelector<HTMLElement>(".selection-color");
+  if(heading) heading.textContent=`Territorio ${id}`;
+  if(status) status.innerHTML=`<i class="status-dot ${estadoClase}"></i>${metrica.estado}${metrica.ultima?` · ultima salida hace ${diasDesde(metrica.ultima.fecha)} dias`:" · sin registros"}`;
+  color?.style.setProperty("--selection",colorCategoria[territorio.categoria]);
+  mapa.setPaintProperty("territorios-fill","fill-opacity",["case",["==",["get","id"],id],.34,.12]);
+  mapa.setPaintProperty("territorios-line","line-width",["case",["==",["get","id"],id],4,2]);
+  mapa.setPaintProperty("territorios-line","line-opacity",["case",["==",["get","id"],id],1,.82]);
+  mapa.setFilter("territorios-selected",["==",["get","id"],id]);
+  const points=feature.geometry.coordinates[0] as number[][];
+  const bounds=points.reduce((result,point)=>result.extend(point as [number,number]),new LngLatBounds(points[0] as [number,number],points[0] as [number,number]));
+  const mobile=window.innerWidth<=760;
+  mapa.fitBounds(bounds,{padding:mobile?{top:145,right:42,bottom:245,left:42}:{top:125,right:90,bottom:130,left:285},maxZoom:17,duration:720,essential:true});
+  const url=new URL(location.href);url.searchParams.set("t",String(id));history.replaceState({},"",url);
+}
+
 function panelTerritorio(territorio: Territorio, m: ReturnType<typeof metricasTerritorio>) {
   const estadoClase = m.estado === "Al dia" ? "current" : m.estado === "Atencion" ? "warning" : "late";
   return `<div class="detail-head"><div><span class="eyebrow">DETALLE ACTUAL</span><h2>Territorio ${territorio.id}</h2></div><span class="category-badge" style="--badge:${colorCategoria[territorio.categoria]}"><i></i>${territorio.categoria}</span></div>
@@ -204,6 +229,11 @@ function iniciarMapa(visibles: Territorio[]) {
     maxZoom:20,
     maxBounds:[[GEO_BOUNDS.west-.025,GEO_BOUNDS.south-.02],[GEO_BOUNDS.east+.025,GEO_BOUNDS.north+.02]],
     attributionControl:{compact:true},
+    dragPan:true,
+    scrollZoom:true,
+    touchZoomRotate:true,
+    doubleClickZoom:true,
+    cooperativeGestures:false,
   });
   mapa.addControl(new NavigationControl({showCompass:false}),"bottom-right");
   controlUbicacion = new GeolocateControl({positionOptions:{enableHighAccuracy:true},trackUserLocation:true,showUserLocation:true,showAccuracyCircle:true});
@@ -215,6 +245,7 @@ function iniciarMapa(visibles: Territorio[]) {
       const response=await fetch(`${import.meta.env.BASE_URL}territorios.geojson`);
       if(!response.ok) throw new Error("GeoJSON no disponible");
       const original=await response.json();
+      geometriasTerritorios=original;
       const features=original.features.filter((feature:any)=>idsVisibles.has(Number(feature.properties?.id))).map((feature:any)=>{
         const id=Number(feature.properties.id);
         const territorio=territorios.find(item=>item.id===id)!;
@@ -249,9 +280,8 @@ function iniciarMapa(visibles: Territorio[]) {
       mapa.addLayer({id:"territorios-status",type:"circle",source:"centros",paint:{
         "circle-radius":["interpolate",["linear"],["zoom"],12,2.5,17,4],"circle-color":["get","statusColor"],"circle-stroke-color":"#fff","circle-stroke-width":1.5,"circle-translate":[10,-10],
       }});
-      const seleccionar=(event:any)=>{const id=Number(event.features?.[0]?.properties?.id);if(id){seleccionado=id;render();}};
+      const seleccionar=(event:any)=>{const id=Number(event.features?.[0]?.properties?.id);if(id)enfocarTerritorio(id);};
       mapa.on("click","territorios-fill",seleccionar);
-      mapa.on("click","territorios-labels",seleccionar);
       mapa.on("mouseenter","territorios-fill",()=>{if(mapa)mapa.getCanvas().style.cursor="pointer";});
       mapa.on("mouseleave","territorios-fill",()=>{if(mapa)mapa.getCanvas().style.cursor="";});
     } catch(error) {
@@ -265,6 +295,7 @@ function iniciarMapa(visibles: Territorio[]) {
       mapa.fitBounds(limites,{padding,duration:0});
       mapa.setZoom(mapa.getZoom()-.7);
       mapaInicializado=true;
+      if(territorioEnUrl>=1&&territorioEnUrl<=96) setTimeout(()=>enfocarTerritorio(territorioEnUrl),180);
     }
   });
   mapa.on("moveend",()=>{ if(mapa){const center=mapa.getCenter();vistaMapa={centro:[center.lng,center.lat],zoom:mapa.getZoom()};} });
@@ -281,7 +312,7 @@ function bindEvents() {
   document.querySelectorAll<HTMLButtonElement>("[data-panel]").forEach(b=>b.addEventListener("click",()=>{panelActivo=b.dataset.panel as Panel;render();}));
   document.querySelectorAll<HTMLButtonElement>("[data-category]").forEach(b=>b.addEventListener("click",()=>{categoriaActiva=b.dataset.category as Categoria|"Todas";render();}));
   document.querySelectorAll<HTMLButtonElement>("[data-select]").forEach(b=>b.addEventListener("click",()=>{seleccionado=Number(b.dataset.select);panelActivo="estadisticas";render();}));
-  document.querySelector<HTMLInputElement>("#search")?.addEventListener("input",e=>{busqueda=(e.target as HTMLInputElement).value.replace(/\D/g,"").slice(0,2);const t=territorios.find(t=>String(t.id)===busqueda);if(t)seleccionado=t.id;render();document.querySelector<HTMLInputElement>("#search")?.focus();});
+  document.querySelector<HTMLInputElement>("#search")?.addEventListener("input",e=>{busqueda=(e.target as HTMLInputElement).value.replace(/\D/g,"").slice(0,2);const input=e.target as HTMLInputElement;input.value=busqueda;const t=territorios.find(t=>String(t.id)===busqueda);if(t)enfocarTerritorio(t.id);});
   document.querySelector("#reset")?.addEventListener("click",()=>{categoriaActiva="Todas";busqueda="";render();});
   document.querySelector("#fit-map")?.addEventListener("click",()=>{
     const mobile=window.innerWidth<=760;
