@@ -34,8 +34,8 @@ export function registrosDemo(): RegistroSalida[] {
 
 export function asignacionesDemo(): Asignacion[] {
   return [
-    { id: "demo-a-1", territorioId: 36, fecha: fechaAdelante(2), hora: "09:30", grupo: "Grupo 1", puntoEncuentro: "Salón del Reino", estado: "Programada", demo: true },
-    { id: "demo-a-2", territorioId: 72, fecha: fechaAdelante(4), hora: "17:00", grupo: "Grupo 2", puntoEncuentro: "Punto habitual", estado: "Programada", demo: true },
+    { id: "demo-a-1", territorioId: 36, territorioIds: [36, 35], fecha: fechaAdelante(2), hora: "09:30", grupo: "Grupo 1", puntoEncuentro: "Salón del Reino", encargado: "Encargado A.", tipo: "Salida", estado: "Programada", demo: true },
+    { id: "demo-a-2", territorioId: 72, territorioIds: [72, 71], fecha: fechaAdelante(4), hora: "17:00", grupo: "Grupo 2", puntoEncuentro: "Punto habitual", encargado: "Encargado B.", tipo: "Salida", estado: "Programada", demo: true },
   ];
 }
 

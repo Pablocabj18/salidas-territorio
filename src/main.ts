@@ -20,7 +20,8 @@ import {
 } from "./services/backend";
 import { obtenerDatosLocales, restaurarDemo } from "./services/registros";
 import { diasTranscurridos, diferenciaPorcentual, perteneceAlMes, promedio } from "./services/metricas";
-import type { AlcanceSolicitud, Categoria, ConfiguracionOperacion, DatosAplicacion, EstadoCuadra, EstadoDatos, Modalidad, RegistroSalida, SolicitudTerritorio, Territorio, UsuarioSesion } from "./types/domain";
+import type { AlcanceSolicitud, Asignacion, Categoria, ConfiguracionOperacion, DatosAplicacion, EstadoCuadra, EstadoDatos, Modalidad, RegistroSalida, SolicitudTerritorio, Territorio, UsuarioSesion } from "./types/domain";
+import { desplazarDias, fechaIsoLocal, parsearTerritorios, rangoSemana } from "./utils/programa";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
 setWorkerUrl(workerUrl);
@@ -51,12 +52,50 @@ let estadoDatos: EstadoDatos = { modo: "local", conectado: true, configurado: fi
 let usuario: UsuarioSesion | null = null;
 let modoCampana = false;
 let tarjetaMinimizada = window.innerWidth <= 760;
+let semanaPrograma = rangoSemana(HOY).desde;
 
 const fechaCorta = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
 const mesNombre = new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric" });
 
 function formatearRango(desde: string, hasta: string) {
   return `${fechaCorta.format(new Date(`${desde}T12:00:00`))} – ${fechaCorta.format(new Date(`${hasta}T12:00:00`))}`;
+}
+
+function capitalizar(texto: string) {
+  return texto ? texto[0].toUpperCase() + texto.slice(1) : texto;
+}
+
+function nombreDiaPrograma(fecha: string) {
+  return capitalizar(new Intl.DateTimeFormat("es-AR", { weekday: "long", day: "numeric" }).format(new Date(`${fecha}T12:00:00`)));
+}
+
+function rangoProgramaTexto(desde: string, hasta: string) {
+  const formato = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "long" });
+  return `${formato.format(new Date(`${desde}T12:00:00`))} al ${formato.format(new Date(`${hasta}T12:00:00`))}`;
+}
+
+function tipoAsignacion(asignacion: Asignacion) {
+  return asignacion.tipo ?? "Salida";
+}
+
+function territoriosAsignacion(asignacion: Asignacion) {
+  if (asignacion.territorioIds?.length) return asignacion.territorioIds;
+  return typeof asignacion.territorioId === "number" ? [asignacion.territorioId] : [];
+}
+
+function etiquetaTerritorioAsignacion(asignacion: Asignacion) {
+  const tipo = tipoAsignacion(asignacion);
+  if (tipo === "Telefonica") return "Telefónico";
+  if (tipo === "Revisitas") return "Revisitas";
+  if (tipo === "Reunion" || tipo === "Sin salida") return "—";
+  return territoriosAsignacion(asignacion).join("-") || "A definir";
+}
+
+function asignacionesDeSemana() {
+  const { desde, hasta } = rangoSemana(new Date(`${semanaPrograma}T12:00:00`));
+  return datosAplicacion.asignaciones
+    .filter((item) => item.estado === "Programada" && item.fecha >= desde && item.fecha <= hasta)
+    .sort((a, b) => `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`));
 }
 
 function escaparHtml(valor: unknown) {
@@ -206,7 +245,7 @@ function render() {
       </section>
       <aside class="detail-panel">${panelActivo === "mapa" ? panelMapa(actual, metrica) : panelActivo === "estadisticas" ? panelTerritorio(actual, metrica) : panelActivo === "planificacion" ? panelPlanificacion() : panelInforme(global)}</aside>
     </main>
-    ${modalRegistro()}${modalAsignacion()}${modalCampana()}${modalSolicitud()}`;
+    ${modalRegistro()}${modalAsignacion()}${modalCampana()}${modalSolicitud()}${modalPrograma()}`;
   iniciarMapa(filtrados);
   bindEvents();
 }
@@ -309,17 +348,25 @@ function panelPlanificacion() {
   const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
   const puedeSolicitar = estadoDatos.modo === "local" || firebaseConfigurado;
   const solicitudes = [...datosAplicacion.solicitudes].sort((a,b)=>b.creadoEn.localeCompare(a.creadoEn)).slice(0,8);
-  return `<div class="detail-head"><div><span class="eyebrow">ORGANIZACIÓN</span><h2>Planificación</h2></div><button id="print-program" class="print-button">Programa</button></div>
+  return `<div class="detail-head"><div><span class="eyebrow">ORGANIZACIÓN</span><h2>Planificación</h2></div><button id="open-program" class="print-button">Ver programa</button></div>
     ${firebaseConfigurado && !usuario ? '<button class="login-callout" data-login><b class="google-mark" aria-hidden="true">G</b><span><strong>Ingresar con Google</strong><small>Solicitá territorios y seguí tus pedidos</small></span><i>→</i></button>' : ""}
     ${campana ? `<div class="campaign-card"><div class="campaign-heading"><span>CAMPAÑA ACTIVA</span><b>${escaparHtml(campana.nombre)}</b></div><strong>${campana.completados.length}<small>/${campana.territorioIds.length}</small></strong><div class="report-progress"><i style="width:${porcentajeCampana}%"></i></div><p>${porcentajeCampana}% completado · ${formatearRango(campana.desde, campana.hasta)}</p></div>` : '<div class="empty-campaign"><strong>Sin campaña activa</strong><p>Podés crear una para seguir el avance territorial.</p></div>'}
-    <div class="section-title"><span>Próximas asignaciones</span><button id="new-assignment" ${puedeEditar ? "" : "disabled"}>+ Agregar</button></div>
-    <div class="assignment-list">${proximas.map((item) => `<button data-select="${item.territorioId}" class="assignment-item"><time>${fechaCorta.format(new Date(`${item.fecha}T12:00:00`))}<b>${escaparHtml(item.hora)}</b></time><div><strong>Territorio ${item.territorioId} · ${escaparHtml(item.grupo)}</strong><small>${escaparHtml(item.puntoEncuentro || "Punto a confirmar")}</small></div>${item.demo ? '<span class="demo-tag">DEMO</span>' : ""}</button>`).join("") || '<p class="empty">No hay asignaciones próximas.</p>'}</div>
+    <div class="section-title"><span>Próximas salidas</span><button id="new-assignment" ${puedeEditar ? "" : "disabled"}>+ Nueva salida</button></div>
+    <div class="assignment-list">${proximas.map(tarjetaAsignacion).join("") || '<p class="empty">No hay asignaciones próximas.</p>'}</div>
     <div class="section-title"><span>Solicitudes personales</span><button id="request-from-planning" ${puedeSolicitar ? "" : "disabled"}>+ Solicitar T${seleccionado}</button></div>
     <div class="request-list">${solicitudes.map(tarjetaSolicitud).join("") || `<p class="empty">${firebaseConfigurado && !usuario ? "Ingresá para solicitar y ver tus pedidos." : "Todavía no hay solicitudes."}</p>`}</div>
     <div class="planner-intro"><strong>Prioridades sugeridas</strong><p>Se ordenan por días desde la última salida y luego sirven de base al programa. Son ayudas organizativas, no evaluaciones personales.</p></div>
     <div class="priority-list">${prioridades.map(({t,m},i)=>`<button data-select="${t.id}" class="priority-item"><span class="priority-number">${i+1}</span><div><strong>Territorio ${t.id}</strong><small>${m.ultima ? `${diasDesde(m.ultima.fecha)} días sin salida` : "Sin registros"}</small></div><span class="priority-arrow">→</span></button>`).join("")}</div>
     <div class="insight-card"><span class="insight-icon">↗</span><div><strong>Territorios con apoyo bajo</strong><p>${bajoApoyo.length ? bajoApoyo.map(({t})=>t.id).join(", ") : "No se detectaron casos este mes"}</p></div></div>
     <div class="planner-actions"><button id="new-campaign" ${puedeEditar ? "" : "disabled"}>${campana ? "Nueva campaña" : "Crear campaña"}</button><button id="open-report">Ver informe</button></div>`;
+}
+
+function tarjetaAsignacion(asignacion: Asignacion) {
+  const territorioPrincipal = territoriosAsignacion(asignacion)[0];
+  const contenido = `<time>${fechaCorta.format(new Date(`${asignacion.fecha}T12:00:00`))}<b>${escaparHtml(asignacion.hora)}</b></time><div><strong>${escaparHtml(etiquetaTerritorioAsignacion(asignacion))} · ${escaparHtml(asignacion.encargado || asignacion.grupo || "Sin encargado")}</strong><small>${escaparHtml(asignacion.puntoEncuentro || "Punto a confirmar")}${asignacion.grupo ? ` · ${escaparHtml(asignacion.grupo)}` : ""}</small></div>${asignacion.demo ? '<span class="demo-tag">DEMO</span>' : ""}`;
+  return territorioPrincipal
+    ? `<button data-select="${territorioPrincipal}" class="assignment-item">${contenido}</button>`
+    : `<article class="assignment-item static">${contenido}</article>`;
 }
 
 function tarjetaSolicitud(solicitud: SolicitudTerritorio) {
@@ -503,8 +550,34 @@ function modalRegistro() {
 
 function modalAsignacion() {
   const manana = new Date(HOY); manana.setDate(manana.getDate() + 1);
-  const opciones = territorios.map((t) => `<option value="${t.id}" ${t.id === seleccionado ? "selected" : ""}>Territorio ${t.id}</option>`).join("");
-  return `<dialog id="assignment-dialog"><form id="assignment-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">PLANIFICACIÓN</span><h2>Nueva asignación</h2></div><button type="button" data-close="assignment-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">Usá un nombre general de grupo. Evitá cargar nombres de personas.</p><div class="form-grid"><label>Fecha<input required name="fecha" type="date" value="${manana.toISOString().slice(0,10)}"></label><label>Hora<input required name="hora" type="time" value="09:30"></label><label>Territorio<select name="territorioId">${opciones}</select></label><label>Grupo<input required name="grupo" maxlength="40" value="Grupo 1"></label><label class="full">Punto de encuentro<input name="puntoEncuentro" maxlength="80" placeholder="Ej.: Salón del Reino"></label></div><div class="modal-actions"><button type="button" data-close="assignment-dialog">Cancelar</button><button type="submit">Guardar asignación</button></div></form></dialog>`;
+  return `<dialog id="assignment-dialog"><form id="assignment-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">PROGRAMA SEMANAL</span><h2>Nueva salida</h2></div><button type="button" data-close="assignment-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">Completá los mismos datos del programa. La web es compartida: en “Encargado” usá un nombre corto o solo el rol si no cuentan con permiso para publicar el nombre completo.</p><div class="form-grid">
+    <label class="full">Tipo de actividad<select required name="tipo" id="assignment-type"><option value="Salida">Salida al ministerio</option><option value="Telefonica">Predicación telefónica</option><option value="Revisitas">Revisitas</option><option value="Reunion">Reunión</option><option value="Sin salida">No hay salida</option></select></label>
+    <label>Fecha<input required name="fecha" type="date" value="${fechaIsoLocal(manana)}"></label><label>Hora<input required name="hora" type="time" value="09:30"></label>
+    <label class="full">Lugar de encuentro<input required name="puntoEncuentro" maxlength="100" placeholder="Ej.: Flia. Quiroga (Gral. Savio 549)"></label>
+    <label id="assignment-territories-field">Territorios<input required name="territorios" inputmode="numeric" maxlength="35" value="${seleccionado}" placeholder="Ej.: 21-31 o 82-83-84"><small>Separalos con guiones o comas.</small></label>
+    <label>Encargado<input name="encargado" maxlength="55" placeholder="Nombre corto o rol"></label>
+    <label class="full">Grupos<input name="grupo" maxlength="55" placeholder="Ej.: Grupo 1, Grupo 2 o -"></label>
+  </div><div class="modal-actions"><button type="button" data-close="assignment-dialog">Cancelar</button><button type="submit">Agregar al programa</button></div></form></dialog>`;
+}
+
+function modalPrograma() {
+  const { desde, hasta } = rangoSemana(new Date(`${semanaPrograma}T12:00:00`));
+  const asignaciones = asignacionesDeSemana();
+  const porFecha = new globalThis.Map<string, Asignacion[]>();
+  asignaciones.forEach((item) => porFecha.set(item.fecha, [...(porFecha.get(item.fecha) ?? []), item]));
+  const inicio = new Date(`${desde}T12:00:00`);
+  const filas = Array.from({ length: 7 }, (_, indice) => fechaIsoLocal(desplazarDias(inicio, indice))).map((fecha) => {
+    const delDia = porFecha.get(fecha) ?? [];
+    if (!delDia.length) return `<tr class="program-empty-row"><td data-label="Día" class="program-day">${nombreDiaPrograma(fecha)}</td><td data-label="Hora">—</td><td data-label="Lugar de encuentro">Sin cargar</td><td data-label="Territorio">—</td><td data-label="Encargado">—</td><td data-label="Grupos">—</td></tr>`;
+    return delDia.map((item) => `<tr><td data-label="Día" class="program-day">${nombreDiaPrograma(fecha)}</td><td data-label="Hora" class="program-time">${escaparHtml(item.hora)}</td><td data-label="Lugar de encuentro">${escaparHtml(item.puntoEncuentro || (tipoAsignacion(item) === "Sin salida" ? "No hay salida" : "A confirmar"))}</td><td data-label="Territorio">${escaparHtml(etiquetaTerritorioAsignacion(item))}</td><td data-label="Encargado">${escaparHtml(item.encargado || "—")}</td><td data-label="Grupos">${escaparHtml(item.grupo || "—")}</td></tr>`).join("");
+  }).join("");
+  const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
+  return `<dialog id="program-dialog" class="program-dialog"><div class="program-shell">
+    <div class="program-top"><div><span class="eyebrow">PLANIFICACIÓN SEMANAL</span><h2>Salidas al ministerio</h2></div><button type="button" data-close="program-dialog" aria-label="Cerrar">×</button></div>
+    <div class="program-week"><button id="program-prev" aria-label="Semana anterior">←</button><strong>${capitalizar(rangoProgramaTexto(desde, hasta))}</strong><button id="program-next" aria-label="Semana siguiente">→</button></div>
+    <div class="program-scroll"><table class="program-table"><thead><tr><th>Día</th><th>Hora</th><th>Lugar de encuentro</th><th>Territorio</th><th>Encargado</th><th>Grupos</th></tr></thead><tbody>${filas}</tbody></table></div>
+    <div class="program-actions">${puedeEditar ? '<button id="program-new-assignment">+ Nueva salida</button>' : ""}<button id="share-program">Compartir</button><button id="print-program" class="primary">Imprimir / PDF</button></div>
+  </div></dialog>`;
 }
 
 function modalCampana() {
@@ -527,13 +600,32 @@ function modalSolicitud() {
   </div>${firebaseConfigurado && !usuario ? '<p class="login-required">Para enviar el pedido compartido primero tenés que ingresar con Google.</p>' : ""}<div class="modal-actions"><button type="button" data-close="request-dialog">Cancelar</button><button type="submit">Enviar solicitud</button></div></form></dialog>`;
 }
 
+function textoPrograma() {
+  const { desde, hasta } = rangoSemana(new Date(`${semanaPrograma}T12:00:00`));
+  const filas = asignacionesDeSemana().map((item) => `${nombreDiaPrograma(item.fecha)} · ${item.hora} · ${item.puntoEncuentro || "A confirmar"} · ${etiquetaTerritorioAsignacion(item)} · Enc.: ${item.encargado || "—"} · Grupos: ${item.grupo || "—"}`);
+  return [`Salidas al ministerio`, capitalizar(rangoProgramaTexto(desde, hasta)), "", ...(filas.length ? filas : ["Sin salidas cargadas."])].join("\n");
+}
+
 function imprimirPrograma() {
-  const yaAsignados = new Set(datosAplicacion.asignaciones.filter((item) => item.estado === "Programada").map((item) => item.territorioId));
-  const sugeridos = territorios.map((t) => ({ t, dias: diasDesde(metricasTerritorio(t).ultima?.fecha) })).filter(({t}) => !yaAsignados.has(t.id)).sort((a,b) => b.dias - a.dias).slice(0,8);
-  const ventana = window.open("", "programa-territorios", "width=760,height=900");
-  if (!ventana) return alert("Permití las ventanas emergentes para imprimir el programa.");
-  ventana.document.write(`<!doctype html><html lang="es"><head><title>Programa territorial</title><style>body{font:15px system-ui;margin:40px;color:#20231f}h1{margin-bottom:4px}p{color:#666}table{width:100%;border-collapse:collapse;margin-top:28px}th,td{text-align:left;padding:12px;border-bottom:1px solid #ddd}small{color:#777}</style></head><body><h1>Programa territorial sugerido</h1><p>Generado el ${new Intl.DateTimeFormat("es-AR",{dateStyle:"long"}).format(HOY)} · revisar antes de usar.</p><table><thead><tr><th>Prioridad</th><th>Territorio</th><th>Última atención</th><th>Fecha / grupo</th></tr></thead><tbody>${sugeridos.map((item,index)=>`<tr><td>${index+1}</td><td><b>Territorio ${item.t.id}</b></td><td>${Number.isFinite(item.dias) ? `${item.dias} días` : "Sin registros"}</td><td>________________</td></tr>`).join("")}</tbody></table><p><small>Criterio: territorios no asignados, ordenados por días desde la última salida. No es una evaluación de personas.</small></p><script>window.onload=()=>window.print()<\/script></body></html>`);
-  ventana.document.close();
+  document.body.classList.add("printing-program");
+  const limpiar = () => document.body.classList.remove("printing-program");
+  window.addEventListener("afterprint", limpiar, { once: true });
+  window.print();
+  window.setTimeout(limpiar, 2000);
+}
+
+async function compartirPrograma() {
+  const texto = textoPrograma();
+  try {
+    if (navigator.share) await navigator.share({ title: "Salidas al ministerio", text: texto });
+    else {
+      await navigator.clipboard.writeText(texto);
+      alert("Programa copiado para compartir.");
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    mostrarError(error);
+  }
 }
 
 function refrescarDatosLocales() {
@@ -581,24 +673,32 @@ function bindEvents() {
   document.querySelector("#view-stats")?.addEventListener("click",()=>{panelActivo="estadisticas";render();});
   document.querySelector("#toggle-selection-card")?.addEventListener("click",()=>{tarjetaMinimizada=!tarjetaMinimizada;render();});
   document.querySelector("#print-report")?.addEventListener("click",()=>window.print());
+  document.querySelector("#open-program")?.addEventListener("click",()=>document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal());
   document.querySelector("#print-program")?.addEventListener("click",imprimirPrograma);
+  document.querySelector("#share-program")?.addEventListener("click",compartirPrograma);
+  document.querySelector("#program-prev")?.addEventListener("click",()=>{semanaPrograma=fechaIsoLocal(desplazarDias(new Date(`${semanaPrograma}T12:00:00`),-7));render();document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();});
+  document.querySelector("#program-next")?.addEventListener("click",()=>{semanaPrograma=fechaIsoLocal(desplazarDias(new Date(`${semanaPrograma}T12:00:00`),7));render();document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();});
   document.querySelector("#restore-demo")?.addEventListener("click",()=>{if(estadoDatos.modo==="local"&&confirm("Se reemplazarán los datos locales por la demostración. ¿Continuar?")){restaurarDemo();refrescarDatosLocales();render();}});
   const dialog=document.querySelector<HTMLDialogElement>("#record-dialog");
   ["#new-record-top","#new-record-inline","#new-record-detail"].forEach(id=>document.querySelector(id)?.addEventListener("click",()=>dialog?.showModal()));
   ["#close-dialog","#cancel-dialog"].forEach(id=>document.querySelector(id)?.addEventListener("click",()=>dialog?.close()));
   document.querySelector("#new-assignment")?.addEventListener("click",()=>document.querySelector<HTMLDialogElement>("#assignment-dialog")?.showModal());
+  document.querySelector("#program-new-assignment")?.addEventListener("click",()=>{document.querySelector<HTMLDialogElement>("#program-dialog")?.close();document.querySelector<HTMLDialogElement>("#assignment-dialog")?.showModal();});
   document.querySelector("#new-campaign")?.addEventListener("click",()=>document.querySelector<HTMLDialogElement>("#campaign-dialog")?.showModal());
   const abrirSolicitud=async()=>{if(firebaseConfigurado&&!usuario){try{await accederConGoogle();}catch(error){mostrarError(error);}return;}document.querySelector<HTMLDialogElement>("#request-dialog")?.showModal();};
   document.querySelector("#request-territory")?.addEventListener("click",abrirSolicitud);
   document.querySelector("#request-from-planning")?.addEventListener("click",abrirSolicitud);
   document.querySelectorAll<HTMLButtonElement>("[data-close]").forEach((boton)=>boton.addEventListener("click",()=>document.querySelector<HTMLDialogElement>(`#${boton.dataset.close}`)?.close()));
+  const tipoAsignacionSelect=document.querySelector<HTMLSelectElement>("#assignment-type");
+  const actualizarCamposAsignacion=()=>{const tipo=tipoAsignacionSelect?.value;const campo=document.querySelector<HTMLElement>("#assignment-territories-field");const territoriosInput=campo?.querySelector<HTMLInputElement>("input");const encuentro=document.querySelector<HTMLInputElement>("#assignment-form [name=puntoEncuentro]");const esSalida=tipo==="Salida";if(territoriosInput){territoriosInput.disabled=!esSalida;territoriosInput.required=esSalida;}campo?.classList.toggle("field-disabled",!esSalida);if(encuentro){const sugerencias:Record<string,string>={Telefonica:"Zoom",Reunion:"Reunión","Sin salida":"No hay salida"};if(sugerencias[tipo??""])encuentro.value=sugerencias[tipo??""];else if(["Zoom","Reunión","No hay salida"].includes(encuentro.value))encuentro.value="";}};
+  tipoAsignacionSelect?.addEventListener("change",actualizarCamposAsignacion);
   document.querySelector<HTMLSelectElement>("#request-scope")?.addEventListener("change",(event)=>{const seleccion=(event.currentTarget as HTMLSelectElement).value;const fieldset=document.querySelector<HTMLFieldSetElement>("#request-blocks");if(fieldset)fieldset.disabled=seleccion==="Territorio completo";});
   document.querySelectorAll<HTMLButtonElement>("[data-request-approve]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await resolverSolicitud(boton.dataset.requestApprove!,"Aprobada");refrescarDatosLocales();render();}catch(error){mostrarError(error);}}));
   document.querySelectorAll<HTMLButtonElement>("[data-request-reject]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await resolverSolicitud(boton.dataset.requestReject!,"Rechazada");refrescarDatosLocales();render();}catch(error){mostrarError(error);}}));
   document.querySelectorAll<HTMLButtonElement>("[data-request-close]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await cerrarSolicitud(boton.dataset.requestId!,boton.dataset.requestClose as "Completada"|"Cancelada");refrescarDatosLocales();render();}catch(error){mostrarError(error);}}));
   document.querySelector("#toggle-campaign-complete")?.addEventListener("click",async()=>{const campana=datosAplicacion.campanas.find((item)=>item.activa);if(!campana)return;const completados=campana.completados.includes(seleccionado)?campana.completados.filter((id)=>id!==seleccionado):[...campana.completados,seleccionado];try{await actualizarCampana({...campana,completados});refrescarDatosLocales();render();}catch(error){mostrarError(error);}});
   document.querySelector<HTMLFormElement>("#record-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const submit=form.querySelector<HTMLButtonElement>("button[type=submit]");if(submit)submit.disabled=true;try{await guardarRegistro({fecha:String(data.get("fecha")),territorioId:Number(data.get("territorioId")),hermanos:Number(data.get("hermanos")),modalidad:String(data.get("modalidad")) as Modalidad,cobertura:Number(data.get("cobertura")),revisitas:Number(data.get("revisitas")),cursos:Number(data.get("cursos")),observacion:String(data.get("observacion")||"")});seleccionado=Number(data.get("territorioId"));panelActivo="estadisticas";dialog?.close();refrescarDatosLocales();render();}catch(error){mostrarError(error);if(submit)submit.disabled=false;}});
-  document.querySelector<HTMLFormElement>("#assignment-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);try{await guardarAsignacion({fecha:String(data.get("fecha")),hora:String(data.get("hora")),territorioId:Number(data.get("territorioId")),grupo:String(data.get("grupo")),puntoEncuentro:String(data.get("puntoEncuentro")||""),estado:"Programada"});form.closest("dialog")?.close();refrescarDatosLocales();render();}catch(error){mostrarError(error);}});
+  document.querySelector<HTMLFormElement>("#assignment-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const tipo=String(data.get("tipo")) as NonNullable<Asignacion["tipo"]>;try{const territorioIds=tipo==="Salida"?parsearTerritorios(String(data.get("territorios")||"")):[];if(tipo==="Salida"&&!territorioIds.length)return alert("Ingresá al menos un territorio.");const fecha=String(data.get("fecha"));await guardarAsignacion({...(territorioIds.length?{territorioId:territorioIds[0],territorioIds}:{}),fecha,hora:String(data.get("hora")),grupo:String(data.get("grupo")||""),puntoEncuentro:String(data.get("puntoEncuentro")||""),encargado:String(data.get("encargado")||""),tipo,estado:"Programada"});semanaPrograma=rangoSemana(new Date(`${fecha}T12:00:00`)).desde;form.closest("dialog")?.close();refrescarDatosLocales();render();document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();}catch(error){mostrarError(error);}});
   document.querySelector<HTMLFormElement>("#campaign-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const desde=String(data.get("desde"));const hasta=String(data.get("hasta"));if(hasta<desde)return alert("La fecha de finalización debe ser posterior al inicio.");try{await guardarCampana({nombre:String(data.get("nombre")),desde,hasta,territorioIds:Array.from({length:96},(_,i)=>i+1),completados:[],activa:true});form.closest("dialog")?.close();modoCampana=true;refrescarDatosLocales();render();}catch(error){mostrarError(error);}});
   document.querySelector<HTMLFormElement>("#request-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const alcance=String(data.get("alcance")) as AlcanceSolicitud;const todas=geometriasCuadras?.features?.filter((item:any)=>Number(item.properties?.territorioId)===seleccionado).map((item:any)=>String(item.properties.id))??[];const elegidas=alcance==="Territorio completo"?todas:data.getAll("cuadraId").map(String);const desde=String(data.get("desde"));const hasta=String(data.get("hasta"));if(!elegidas.length)return alert("Elegí al menos una cuadra.");if(hasta<desde)return alert("La fecha final debe ser posterior al inicio.");try{await crearSolicitud({territorioId:seleccionado,cuadraIds:elegidas,alcance,desde,hasta,modalidad:String(data.get("modalidad")) as Modalidad,aliasPrivado:String(data.get("aliasPrivado")),observacion:String(data.get("observacion")||"")});form.closest("dialog")?.close();refrescarDatosLocales();panelActivo="planificacion";render();}catch(error){mostrarError(error);}});
   document.querySelector<HTMLSelectElement>("#coverage-mode")?.addEventListener("change",async(event)=>{const modo=(event.currentTarget as HTMLSelectElement).value as ConfiguracionOperacion["modoCobertura"];const campana=datosAplicacion.campanas.find((item)=>item.activa);if(modo==="Campaña"&&!campana){alert("Primero creá una campaña activa.");render();return;}const coberturaDesde=modo==="Mensual"?new Date(HOY.getFullYear(),HOY.getMonth(),1,12).toISOString().slice(0,10):modo==="Campaña"?campana!.desde:configuracionCobertura().coberturaDesde;try{await guardarConfiguracion({id:"operacion",modoCobertura:modo,coberturaDesde,actualizadaEn:new Date().toISOString()});refrescarDatosLocales();render();}catch(error){mostrarError(error);}});

@@ -44,11 +44,14 @@ export interface UsuarioSesion {
 
 export interface Asignacion {
   id: string;
-  territorioId: number;
+  territorioId?: number;
+  territorioIds?: number[];
   fecha: string;
   hora: string;
   grupo: string;
   puntoEncuentro: string;
+  encargado?: string;
+  tipo?: "Salida" | "Telefonica" | "Revisitas" | "Reunion" | "Sin salida";
   estado: "Programada" | "Completada" | "Cancelada";
   creadoPor?: string;
   creadoEn?: string;

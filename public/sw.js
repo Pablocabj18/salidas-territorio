@@ -1,4 +1,4 @@
-const CACHE = "territorios-shell-v5";
+const CACHE = "territorios-shell-v6";
 const BASE = new URL("./", self.registration.scope).pathname;
 const SHELL = [BASE, `${BASE}territorios.geojson`, `${BASE}cuadras.geojson`, `${BASE}manifest.webmanifest`, `${BASE}app-icon.svg`];
 
