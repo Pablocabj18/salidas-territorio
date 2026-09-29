@@ -214,7 +214,7 @@ function render() {
 
   app.innerHTML = `
     <header class="topbar">
-      <a class="brand" href="#"><span class="brand-mark">SF</span><span>Territorio</span></a>
+      <a class="brand" href="#"><span class="brand-mark">TO</span><span>Territorios Oeste</span></a>
       <nav class="main-nav" aria-label="Secciones">
         ${navButton("mapa", "Mapa")}${navButton("estadisticas", "Estadisticas")}${navButton("planificacion", "Planificacion")}${navButton("informe", "Informe")}
       </nav>

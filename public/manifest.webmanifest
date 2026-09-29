@@ -1,9 +1,9 @@
 {
-  "name": "Territorios San Francisco",
-  "short_name": "Territorios",
+  "name": "Territorios Oeste",
+  "short_name": "Terr. Oeste",
   "description": "Mapa y planificación de los 96 territorios de San Francisco, Córdoba.",
-  "start_url": "/salidas-territorio/",
-  "scope": "/salidas-territorio/",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#f8f6f0",
   "theme_color": "#f8f6f0",
