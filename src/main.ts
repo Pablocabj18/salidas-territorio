@@ -70,8 +70,12 @@ function nombreDiaPrograma(fecha: string) {
 }
 
 function rangoProgramaTexto(desde: string, hasta: string) {
-  const formato = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "long" });
-  return `${formato.format(new Date(`${desde}T12:00:00`))} al ${formato.format(new Date(`${hasta}T12:00:00`))}`;
+  const formatear = (fecha: string) => {
+    const valor = new Date(`${fecha}T12:00:00`);
+    const mes = capitalizar(new Intl.DateTimeFormat("es-AR", { month: "long" }).format(valor));
+    return `${valor.getDate()} de ${mes}`;
+  };
+  return `${formatear(desde)} al ${formatear(hasta)}`;
 }
 
 function tipoAsignacion(asignacion: Asignacion) {
@@ -566,17 +570,26 @@ function modalPrograma() {
   const porFecha = new globalThis.Map<string, Asignacion[]>();
   asignaciones.forEach((item) => porFecha.set(item.fecha, [...(porFecha.get(item.fecha) ?? []), item]));
   const inicio = new Date(`${desde}T12:00:00`);
-  const filas = Array.from({ length: 7 }, (_, indice) => fechaIsoLocal(desplazarDias(inicio, indice))).map((fecha) => {
+  const filas = Array.from({ length: 7 }, (_, indice) => fechaIsoLocal(desplazarDias(inicio, indice))).map((fecha, indiceDia) => {
     const delDia = porFecha.get(fecha) ?? [];
-    if (!delDia.length) return `<tr class="program-empty-row"><td data-label="Día" class="program-day">${nombreDiaPrograma(fecha)}</td><td data-label="Hora">—</td><td data-label="Lugar de encuentro">Sin cargar</td><td data-label="Territorio">—</td><td data-label="Encargado">—</td><td data-label="Grupos">—</td></tr>`;
-    return delDia.map((item) => `<tr><td data-label="Día" class="program-day">${nombreDiaPrograma(fecha)}</td><td data-label="Hora" class="program-time">${escaparHtml(item.hora)}</td><td data-label="Lugar de encuentro">${escaparHtml(item.puntoEncuentro || (tipoAsignacion(item) === "Sin salida" ? "No hay salida" : "A confirmar"))}</td><td data-label="Territorio">${escaparHtml(etiquetaTerritorioAsignacion(item))}</td><td data-label="Encargado">${escaparHtml(item.encargado || "—")}</td><td data-label="Grupos">${escaparHtml(item.grupo || "—")}</td></tr>`).join("");
+    const tono = indiceDia % 2 === 0 ? "light" : "strong";
+    if (!delDia.length) return `<tr class="program-empty-row day-${tono}"><td class="program-day">${nombreDiaPrograma(fecha)}</td><td class="program-time"></td><td></td><td></td><td></td><td></td></tr>`;
+    return delDia.map((item, indiceSalida) => {
+      const tipo = tipoAsignacion(item);
+      const dia = indiceSalida === 0 ? nombreDiaPrograma(fecha) : "";
+      const inicioFila = `<td class="program-day">${dia}</td><td class="program-time">${escaparHtml(item.hora)}</td>`;
+      if (tipo === "Sin salida" || tipo === "Reunion") {
+        const texto = item.puntoEncuentro || (tipo === "Sin salida" ? "No hay salida" : "Reunión");
+        return `<tr class="day-${tono} program-special-row">${inicioFila}<td colspan="4" class="program-special">${escaparHtml(texto)}</td></tr>`;
+      }
+      return `<tr class="day-${tono}">${inicioFila}<td>${escaparHtml(item.puntoEncuentro || "A confirmar")}</td><td>${escaparHtml(etiquetaTerritorioAsignacion(item))}</td><td>${escaparHtml(item.encargado || "")}</td><td>${escaparHtml(item.grupo || "")}</td></tr>`;
+    }).join("");
   }).join("");
   const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
   return `<dialog id="program-dialog" class="program-dialog"><div class="program-shell">
-    <div class="program-top"><div><span class="eyebrow">PLANIFICACIÓN SEMANAL</span><h2>Salidas al ministerio</h2></div><button type="button" data-close="program-dialog" aria-label="Cerrar">×</button></div>
-    <div class="program-week"><button id="program-prev" aria-label="Semana anterior">←</button><strong>${capitalizar(rangoProgramaTexto(desde, hasta))}</strong><button id="program-next" aria-label="Semana siguiente">→</button></div>
-    <div class="program-scroll"><table class="program-table"><thead><tr><th>Día</th><th>Hora</th><th>Lugar de encuentro</th><th>Territorio</th><th>Encargado</th><th>Grupos</th></tr></thead><tbody>${filas}</tbody></table></div>
-    <div class="program-actions">${puedeEditar ? '<button id="program-new-assignment">+ Nueva salida</button>' : ""}<button id="share-program">Compartir</button><button id="print-program" class="primary">Imprimir / PDF</button></div>
+    <div class="program-toolbar"><div class="program-week-nav"><button id="program-prev" aria-label="Semana anterior">←</button><span>Cambiar semana</span><button id="program-next" aria-label="Semana siguiente">→</button></div><div class="program-toolbar-actions">${puedeEditar ? '<button id="program-new-assignment">+ Nueva salida</button>' : ""}<button id="share-program">Compartir</button><button id="print-program" class="primary">Imprimir / PDF</button><button type="button" class="program-close" data-close="program-dialog" aria-label="Cerrar">×</button></div></div>
+    <p class="program-mobile-hint">Deslizá la tabla hacia los costados para verla completa.</p>
+    <div class="program-scroll"><table class="program-table"><thead><tr class="program-title-row"><th colspan="6"><strong>Salidas al ministerio</strong><span>${rangoProgramaTexto(desde, hasta)}</span></th></tr><tr class="program-column-row"><th>Día</th><th>Hora</th><th>Lugar de encuentro</th><th>Territorio</th><th>Encargado</th><th>Grupos</th></tr></thead><tbody>${filas}</tbody></table></div>
   </div></dialog>`;
 }
 
