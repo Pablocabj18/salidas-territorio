@@ -748,21 +748,13 @@ async function guardarProgramaComoImagen() {
   const blob = await crearImagenPrograma();
   const { desde } = rangoSemana(new Date(`${semanaPrograma}T12:00:00`));
   const nombre = `programa-salidas-${desde}.png`;
-  const archivo = new File([blob], nombre, { type: "image/png" });
-  try {
-    if (navigator.share && navigator.canShare?.({ files: [archivo] })) {
-      await navigator.share({ title: "Salidas al ministerio", files: [archivo] });
-      return;
-    }
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") return;
-    throw error;
-  }
   const enlace = document.createElement("a");
   enlace.href = URL.createObjectURL(blob);
   enlace.download = nombre;
+  enlace.style.display = "none";
+  document.body.append(enlace);
   enlace.click();
-  window.setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
+  window.setTimeout(() => { URL.revokeObjectURL(enlace.href); enlace.remove(); }, 1000);
 }
 
 async function compartirPrograma() {
