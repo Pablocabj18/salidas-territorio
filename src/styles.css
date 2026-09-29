@@ -327,7 +327,7 @@ dialog::backdrop { background:#222521a8; backdrop-filter:blur(3px); }
   .program-shell { padding:8px; }.program-toolbar{align-items:flex-start;flex-wrap:wrap;margin-bottom:6px}.program-week-nav{order:2}.program-toolbar-actions{width:100%;justify-content:flex-end;flex-wrap:wrap}.program-toolbar-actions #program-new-assignment{margin-right:auto}.program-toolbar button{min-height:30px;padding:6px 8px}.program-toolbar .program-close{width:30px}
   .program-mobile-hint { display:block; }
   .program-scroll { overflow-x:auto;-webkit-overflow-scrolling:touch; }
-  .program-table { min-width:880px; }.program-table .program-day{position:sticky;left:0;z-index:1;box-shadow:1px 0 #aebac3}.program-table td{font-size:12px}.program-table .program-column-row th{font-size:13px}
+  .program-table { min-width:880px; }.program-title-row strong,.program-title-row span{position:sticky;left:0;width:340px;text-align:center}.program-table .program-day{position:sticky;left:0;z-index:1;box-shadow:1px 0 #aebac3}.program-table td{font-size:12px}.program-table .program-column-row th{font-size:13px}
 }
 
 @media print {
