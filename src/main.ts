@@ -172,7 +172,7 @@ function render() {
       </nav>
       <div class="header-actions">
         <button id="data-status" class="sync-pill ${estadoDatos.conectado ? "online" : "offline"}" title="${estadoDatos.mensaje}"><i></i>${estadoDatos.modo === "firebase" ? (estadoDatos.conectado ? "Sincronizado" : "Sin conexión") : "Demo local"}</button>
-        ${firebaseConfigurado ? (usuario ? `<button id="auth-action" class="account-button" title="${escaparHtml(usuario.email)}">${usuario.foto ? `<img src="${escaparHtml(usuario.foto)}" alt="">` : "👤"}<span>${usuario.rol === "administrador" ? "Admin" : "Lectura"}</span></button>` : '<button id="auth-action" class="account-button">Ingresar</button>') : ""}
+        ${firebaseConfigurado ? (usuario ? `<button id="auth-action" class="account-button" title="${escaparHtml(usuario.email)}">${usuario.foto ? `<img src="${escaparHtml(usuario.foto)}" alt="">` : "👤"}<span>${usuario.rol === "administrador" ? "Admin" : "Lectura"}</span></button>` : '<button id="auth-action" class="account-button logged-out" aria-label="Ingresar con Google"><b class="google-mark" aria-hidden="true">G</b><span>Ingresar</span></button>') : ""}
         <button id="new-record-top" class="header-primary" aria-label="Registrar salida" ${puedeEditar ? "" : "disabled"}>+ Registrar salida</button>
       </div>
     </header>
@@ -307,9 +307,10 @@ function panelPlanificacion() {
   const campana = datosAplicacion.campanas.find((item) => item.activa);
   const porcentajeCampana = campana ? Math.round(campana.completados.length / Math.max(1, campana.territorioIds.length) * 100) : 0;
   const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
-  const puedeSolicitar = estadoDatos.modo === "local" || Boolean(usuario);
+  const puedeSolicitar = estadoDatos.modo === "local" || firebaseConfigurado;
   const solicitudes = [...datosAplicacion.solicitudes].sort((a,b)=>b.creadoEn.localeCompare(a.creadoEn)).slice(0,8);
   return `<div class="detail-head"><div><span class="eyebrow">ORGANIZACIÓN</span><h2>Planificación</h2></div><button id="print-program" class="print-button">Programa</button></div>
+    ${firebaseConfigurado && !usuario ? '<button class="login-callout" data-login><b class="google-mark" aria-hidden="true">G</b><span><strong>Ingresar con Google</strong><small>Solicitá territorios y seguí tus pedidos</small></span><i>→</i></button>' : ""}
     ${campana ? `<div class="campaign-card"><div class="campaign-heading"><span>CAMPAÑA ACTIVA</span><b>${escaparHtml(campana.nombre)}</b></div><strong>${campana.completados.length}<small>/${campana.territorioIds.length}</small></strong><div class="report-progress"><i style="width:${porcentajeCampana}%"></i></div><p>${porcentajeCampana}% completado · ${formatearRango(campana.desde, campana.hasta)}</p></div>` : '<div class="empty-campaign"><strong>Sin campaña activa</strong><p>Podés crear una para seguir el avance territorial.</p></div>'}
     <div class="section-title"><span>Próximas asignaciones</span><button id="new-assignment" ${puedeEditar ? "" : "disabled"}>+ Agregar</button></div>
     <div class="assignment-list">${proximas.map((item) => `<button data-select="${item.territorioId}" class="assignment-item"><time>${fechaCorta.format(new Date(`${item.fecha}T12:00:00`))}<b>${escaparHtml(item.hora)}</b></time><div><strong>Territorio ${item.territorioId} · ${escaparHtml(item.grupo)}</strong><small>${escaparHtml(item.puntoEncuentro || "Punto a confirmar")}</small></div>${item.demo ? '<span class="demo-tag">DEMO</span>' : ""}</button>`).join("") || '<p class="empty">No hay asignaciones próximas.</p>'}</div>
@@ -543,6 +544,25 @@ function mostrarError(error: unknown) {
   alert(error instanceof Error ? error.message : "No se pudo completar la acción.");
 }
 
+async function accederConGoogle(origen?: HTMLButtonElement) {
+  const textoOriginal = origen?.innerHTML;
+  if (origen) {
+    origen.disabled = true;
+    origen.setAttribute("aria-busy", "true");
+    if (origen.id === "auth-action") origen.innerHTML = '<b class="google-mark" aria-hidden="true">G</b><span>Abriendo…</span>';
+  }
+  try {
+    await iniciarSesion();
+  } catch (error) {
+    if (origen && textoOriginal) origen.innerHTML = textoOriginal;
+    if (origen) {
+      origen.disabled = false;
+      origen.removeAttribute("aria-busy");
+    }
+    throw error;
+  }
+}
+
 function bindEvents() {
   bindBlockEditor();
   document.querySelectorAll<HTMLButtonElement>("[data-panel]").forEach(b=>b.addEventListener("click",()=>{panelActivo=b.dataset.panel as Panel;render();}));
@@ -554,7 +574,8 @@ function bindEvents() {
   document.querySelector("#locate-me")?.addEventListener("click",()=>controlUbicacion?.trigger());
   document.querySelector("#campaign-map-toggle")?.addEventListener("click",()=>{modoCampana=!modoCampana;render();});
   document.querySelector("#data-status")?.addEventListener("click",()=>alert(estadoDatos.mensaje));
-  document.querySelector("#auth-action")?.addEventListener("click",async()=>{try{if(usuario){if(confirm("¿Cerrar la sesión de administración?"))await cerrarSesion();}else await iniciarSesion();}catch(error){mostrarError(error);}});
+  document.querySelector<HTMLButtonElement>("#auth-action")?.addEventListener("click",async(event)=>{try{if(usuario){if(confirm("¿Cerrar la sesión de administración?"))await cerrarSesion();}else await accederConGoogle(event.currentTarget as HTMLButtonElement);}catch(error){mostrarError(error);}});
+  document.querySelectorAll<HTMLButtonElement>("[data-login]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await accederConGoogle(boton);}catch(error){mostrarError(error);}}));
   document.querySelector("#share-territory")?.addEventListener("click",async()=>{const url=new URL(location.href);url.searchParams.set("t",String(seleccionado));const data={title:`Territorio ${seleccionado}`,text:`Territorio ${seleccionado} · San Francisco`,url:url.toString()};try{if(navigator.share)await navigator.share(data);else{await navigator.clipboard.writeText(url.toString());alert("Enlace copiado");}}catch{/* compartir cancelado */}});
   document.querySelector("#open-report")?.addEventListener("click",()=>{panelActivo="informe";render();});
   document.querySelector("#view-stats")?.addEventListener("click",()=>{panelActivo="estadisticas";render();});
@@ -567,7 +588,7 @@ function bindEvents() {
   ["#close-dialog","#cancel-dialog"].forEach(id=>document.querySelector(id)?.addEventListener("click",()=>dialog?.close()));
   document.querySelector("#new-assignment")?.addEventListener("click",()=>document.querySelector<HTMLDialogElement>("#assignment-dialog")?.showModal());
   document.querySelector("#new-campaign")?.addEventListener("click",()=>document.querySelector<HTMLDialogElement>("#campaign-dialog")?.showModal());
-  const abrirSolicitud=async()=>{if(firebaseConfigurado&&!usuario){try{await iniciarSesion();}catch(error){mostrarError(error);}return;}document.querySelector<HTMLDialogElement>("#request-dialog")?.showModal();};
+  const abrirSolicitud=async()=>{if(firebaseConfigurado&&!usuario){try{await accederConGoogle();}catch(error){mostrarError(error);}return;}document.querySelector<HTMLDialogElement>("#request-dialog")?.showModal();};
   document.querySelector("#request-territory")?.addEventListener("click",abrirSolicitud);
   document.querySelector("#request-from-planning")?.addEventListener("click",abrirSolicitud);
   document.querySelectorAll<HTMLButtonElement>("[data-close]").forEach((boton)=>boton.addEventListener("click",()=>document.querySelector<HTMLDialogElement>(`#${boton.dataset.close}`)?.close()));
@@ -587,4 +608,4 @@ function bindEvents() {
 render();
 fetch(`${import.meta.env.BASE_URL}cuadras.geojson`).then((response)=>response.ok?response.json():null).then((data)=>{if(data){geometriasCuadras=data;render();}}).catch((error)=>console.warn("No se pudieron cargar las cuadras",error));
 iniciarBackend((datos)=>{datosAplicacion=datos;render();},(estado)=>{estadoDatos=estado;render();},(sesion)=>{usuario=sesion;render();});
-if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).catch(()=>undefined));
+if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register(`${import.meta.env.BASE_URL}sw.js`).then((registro)=>registro.update()).catch(()=>undefined));

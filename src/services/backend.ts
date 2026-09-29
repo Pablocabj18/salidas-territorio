@@ -2,6 +2,7 @@ import type { Auth } from "firebase/auth";
 import type { Firestore, Unsubscribe } from "firebase/firestore";
 import firebaseConfig, { firebaseConfigurado } from "../config/firebase";
 import type { Asignacion, Campana, ConfiguracionOperacion, DatosAplicacion, EstadoCuadra, EstadoDatos, ProgresoCuadra, RegistroSalida, ReservaTerritorial, SolicitudTerritorio, UsuarioSesion } from "../types/domain";
+import { preferirRedireccionAuth } from "../utils/auth";
 import {
   actualizarCampanaLocal,
   actualizarCuadraLocal,
@@ -128,7 +129,26 @@ function exigirAdmin() {
 
 export async function iniciarSesion() {
   if (!auth || !authSdk) throw new Error("Firebase todavía no está configurado.");
-  await authSdk.signInWithPopup(auth, new authSdk.GoogleAuthProvider());
+  const proveedor = new authSdk.GoogleAuthProvider();
+  proveedor.setCustomParameters({ prompt: "select_account" });
+
+  if (preferirRedireccionAuth(window.innerWidth, navigator.userAgent)) {
+    await authSdk.signInWithRedirect(auth, proveedor);
+    return;
+  }
+
+  try {
+    await authSdk.signInWithPopup(auth, proveedor);
+  } catch (error) {
+    const codigo = (error as { code?: string }).code;
+    const popupBloqueado = [
+      "auth/popup-blocked",
+      "auth/cancelled-popup-request",
+      "auth/operation-not-supported-in-this-environment",
+    ].includes(codigo ?? "");
+    if (!popupBloqueado) throw error;
+    await authSdk.signInWithRedirect(auth, proveedor);
+  }
 }
 
 export async function cerrarSesion() {
