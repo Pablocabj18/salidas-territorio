@@ -13,6 +13,11 @@ describe("programa semanal", () => {
     expect(parsearTerritorios("82-83-84, 82")).toEqual([82, 83, 84]);
   });
 
+  it("acepta seleccionar los 96 territorios sin un límite artificial", () => {
+    const todos = Array.from({ length: 96 }, (_, indice) => indice + 1);
+    expect(parsearTerritorios(todos.join(","))).toEqual(todos);
+  });
+
   it("rechaza números que no sean territorios válidos", () => {
     expect(() => parsearTerritorios("12-97")).toThrow("entre 1 y 96");
   });

@@ -9,6 +9,7 @@ import {
   cerrarSolicitud,
   cerrarSesion,
   crearSolicitud,
+  eliminarAsignacion,
   firebaseConfigurado,
   guardarAsignacion,
   guardarCampana,
@@ -554,13 +555,19 @@ function modalRegistro() {
 
 function modalAsignacion() {
   const manana = new Date(HOY); manana.setDate(manana.getDate() + 1);
-  return `<dialog id="assignment-dialog"><form id="assignment-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">PROGRAMA SEMANAL</span><h2>Nueva salida</h2></div><button type="button" data-close="assignment-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">Completá los mismos datos del programa. La web es compartida: en “Encargado” usá un nombre corto o solo el rol si no cuentan con permiso para publicar el nombre completo.</p><div class="form-grid">
+  const opcionesTerritorio = territorios.map((territorio) => `<button type="button" class="territory-option ${territorio.id === seleccionado ? "selected" : ""}" data-territory-option="${territorio.id}" aria-pressed="${territorio.id === seleccionado}">${territorio.id}</button>`).join("");
+  return `<dialog id="assignment-dialog" class="assignment-dialog"><form id="assignment-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">PROGRAMA SEMANAL</span><h2>Nueva salida</h2></div><button type="button" data-close="assignment-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">Armá la fila tal como aparecerá en el programa. Podés seleccionar todos los territorios que necesites.</p><div class="form-grid assignment-grid">
     <label class="full">Tipo de actividad<select required name="tipo" id="assignment-type"><option value="Salida">Salida al ministerio</option><option value="Telefonica">Predicación telefónica</option><option value="Revisitas">Revisitas</option><option value="Reunion">Reunión</option><option value="Sin salida">No hay salida</option></select></label>
     <label>Fecha<input required name="fecha" type="date" value="${fechaIsoLocal(manana)}"></label><label>Hora<input required name="hora" type="time" value="09:30"></label>
-    <label class="full">Lugar de encuentro<input required name="puntoEncuentro" maxlength="100" placeholder="Ej.: Flia. Quiroga (Gral. Savio 549)"></label>
-    <label id="assignment-territories-field">Territorios<input required name="territorios" inputmode="numeric" maxlength="35" value="${seleccionado}" placeholder="Ej.: 21-31 o 82-83-84"><small>Separalos con guiones o comas.</small></label>
+    <label class="full meeting-field">Lugar de encuentro<textarea required name="puntoEncuentro" maxlength="140" rows="2" placeholder="Ej.: Flia. Quiroga (Gral. Savio 549)"></textarea><small>Este dato tendrá el espacio principal en la planilla y en la imagen.</small></label>
+    <div id="assignment-territories-field" class="form-field full"><span class="field-label">Territorios</span><div class="territory-picker">
+      <div class="territory-picker-summary"><div id="territory-selection" class="territory-selection"></div><strong id="territory-count">1 seleccionado</strong></div>
+      <input type="hidden" name="territorios" value="${seleccionado}">
+      <label class="territory-search"><span aria-hidden="true">⌕</span><input id="territory-filter" type="search" inputmode="numeric" placeholder="Buscar un número" aria-label="Buscar territorio"></label>
+      <div id="territory-options" class="territory-options" aria-label="Elegir territorios">${opcionesTerritorio}</div>
+    </div><small>Tocá cada número para agregarlo o quitarlo. No hay límite dentro de los 96 territorios.</small></div>
     <label>Encargado<input name="encargado" maxlength="55" placeholder="Nombre corto o rol"></label>
-    <label class="full">Grupos<input name="grupo" maxlength="55" placeholder="Ej.: Grupo 1, Grupo 2 o -"></label>
+    <label>Grupos<input name="grupo" maxlength="55" placeholder="Ej.: Grupo 1, Grupo 2 o -"></label>
   </div><div class="modal-actions"><button type="button" data-close="assignment-dialog">Cancelar</button><button type="submit">Agregar al programa</button></div></form></dialog>`;
 }
 
@@ -578,19 +585,24 @@ function modalPrograma() {
       const tipo = tipoAsignacion(item);
       const dia = indiceSalida === 0 ? nombreDiaPrograma(fecha) : "";
       const inicioFila = `<td class="program-day">${dia}</td><td class="program-time">${escaparHtml(item.hora)}</td>`;
+      const eliminar = puedeEditarPrograma() ? `<button type="button" class="program-delete" data-delete-assignment="${escaparHtml(item.id)}" aria-label="Eliminar esta salida" title="Eliminar salida">×</button>` : "";
       if (tipo === "Sin salida" || tipo === "Reunion") {
         const texto = item.puntoEncuentro || (tipo === "Sin salida" ? "No hay salida" : "Reunión");
-        return `<tr class="day-${tono} program-special-row">${inicioFila}<td colspan="4" class="program-special">${escaparHtml(texto)}</td></tr>`;
+        return `<tr class="day-${tono} program-special-row">${inicioFila}<td colspan="4" class="program-special"><span>${escaparHtml(texto)}</span>${eliminar}</td></tr>`;
       }
-      return `<tr class="day-${tono}">${inicioFila}<td>${escaparHtml(item.puntoEncuentro || "A confirmar")}</td><td>${escaparHtml(etiquetaTerritorioAsignacion(item))}</td><td>${escaparHtml(item.encargado || "")}</td><td>${escaparHtml(item.grupo || "")}</td></tr>`;
+      return `<tr class="day-${tono}">${inicioFila}<td class="program-meeting">${escaparHtml(item.puntoEncuentro || "A confirmar")}</td><td>${escaparHtml(etiquetaTerritorioAsignacion(item))}</td><td>${escaparHtml(item.encargado || "")}</td><td class="program-groups"><span>${escaparHtml(item.grupo || "")}</span>${eliminar}</td></tr>`;
     }).join("");
   }).join("");
-  const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
+  const puedeEditar = puedeEditarPrograma();
   return `<dialog id="program-dialog" class="program-dialog"><div class="program-shell">
-    <div class="program-toolbar"><div class="program-week-nav"><button id="program-prev" aria-label="Semana anterior">←</button><span>Cambiar semana</span><button id="program-next" aria-label="Semana siguiente">→</button></div><div class="program-toolbar-actions">${puedeEditar ? '<button id="program-new-assignment">+ Nueva salida</button>' : ""}<button id="share-program">Compartir</button><button id="print-program" class="primary">Imprimir / PDF</button><button type="button" class="program-close" data-close="program-dialog" aria-label="Cerrar">×</button></div></div>
+    <div class="program-toolbar"><div class="program-week-nav"><button id="program-prev" aria-label="Semana anterior">←</button><span>Cambiar semana</span><button id="program-next" aria-label="Semana siguiente">→</button></div><div class="program-toolbar-actions">${puedeEditar ? '<button id="program-new-assignment">+ Nueva salida</button>' : ""}<button id="share-program">Compartir</button><button id="image-program">Guardar imagen</button><button id="print-program" class="primary">Imprimir / PDF</button><button type="button" class="program-close" data-close="program-dialog" aria-label="Cerrar">×</button></div></div>
     <p class="program-mobile-hint">Deslizá la tabla hacia los costados para verla completa.</p>
-    <div class="program-scroll"><table class="program-table"><thead><tr class="program-title-row"><th colspan="6"><strong>Salidas al ministerio</strong><span>${rangoProgramaTexto(desde, hasta)}</span></th></tr><tr class="program-column-row"><th>Día</th><th>Hora</th><th>Lugar de encuentro</th><th>Territorio</th><th>Encargado</th><th>Grupos</th></tr></thead><tbody>${filas}</tbody></table></div>
+    <div class="program-scroll"><table class="program-table"><colgroup><col class="col-day"><col class="col-time"><col class="col-meeting"><col class="col-territory"><col class="col-manager"><col class="col-groups"></colgroup><thead><tr class="program-title-row"><th colspan="6"><strong>Salidas al ministerio</strong><span>${rangoProgramaTexto(desde, hasta)}</span></th></tr><tr class="program-column-row"><th>Día</th><th>Hora</th><th>Lugar de encuentro</th><th>Territorio</th><th>Encargado</th><th>Grupos</th></tr></thead><tbody>${filas}</tbody></table></div>
   </div></dialog>`;
+}
+
+function puedeEditarPrograma() {
+  return estadoDatos.modo === "local" || usuario?.rol === "administrador";
 }
 
 function modalCampana() {
@@ -625,6 +637,132 @@ function imprimirPrograma() {
   window.addEventListener("afterprint", limpiar, { once: true });
   window.print();
   window.setTimeout(limpiar, 2000);
+}
+
+type CeldaImagen = { texto: string; desde: number; hasta?: number; fondo?: string; negrita?: boolean; alineacion?: CanvasTextAlign };
+
+function ajustarTextoCanvas(contexto: CanvasRenderingContext2D, texto: string, anchoMaximo: number, maximoLineas = 2) {
+  const palabras = texto.trim().split(/\s+/).filter(Boolean);
+  if (!palabras.length) return [""];
+  const lineas: string[] = [];
+  let linea = "";
+  palabras.forEach((palabra) => {
+    const candidata = linea ? `${linea} ${palabra}` : palabra;
+    if (contexto.measureText(candidata).width <= anchoMaximo || !linea) linea = candidata;
+    else { lineas.push(linea); linea = palabra; }
+  });
+  if (linea) lineas.push(linea);
+  if (lineas.length > maximoLineas) {
+    const visibles = lineas.slice(0, maximoLineas);
+    let ultima = visibles[maximoLineas - 1];
+    while (ultima.length > 1 && contexto.measureText(`${ultima}…`).width > anchoMaximo) ultima = ultima.slice(0, -1);
+    visibles[maximoLineas - 1] = `${ultima}…`;
+    return visibles;
+  }
+  return lineas;
+}
+
+function crearImagenPrograma() {
+  const { desde, hasta } = rangoSemana(new Date(`${semanaPrograma}T12:00:00`));
+  const porFecha = new globalThis.Map<string, Asignacion[]>();
+  asignacionesDeSemana().forEach((item) => porFecha.set(item.fecha, [...(porFecha.get(item.fecha) ?? []), item]));
+  const inicio = new Date(`${desde}T12:00:00`);
+  const filas = Array.from({ length: 7 }, (_, indice) => fechaIsoLocal(desplazarDias(inicio, indice))).flatMap((fecha, indiceDia) => {
+    const salidas = porFecha.get(fecha) ?? [];
+    const items: Array<Asignacion | null> = salidas.length ? salidas : [null];
+    return items.map((item, indiceSalida) => ({ fecha, indiceDia, item, mostrarDia: indiceSalida === 0 }));
+  });
+  const ancho = 1800;
+  const tituloAlto = 112;
+  const cabeceraAlto = 72;
+  const filaAlto = 70;
+  const alto = tituloAlto + cabeceraAlto + filas.length * filaAlto + 4;
+  const columnas = [0, 234, 396, 1152, 1368, 1656, ancho];
+  const canvas = document.createElement("canvas");
+  canvas.width = ancho;
+  canvas.height = alto;
+  const contexto = canvas.getContext("2d");
+  if (!contexto) throw new Error("No se pudo preparar la imagen.");
+  contexto.textBaseline = "middle";
+  contexto.fillStyle = "#ffffff";
+  contexto.fillRect(0, 0, ancho, alto);
+
+  const rectangulo = (x: number, y: number, w: number, h: number, fondo: string) => {
+    contexto.fillStyle = fondo;
+    contexto.fillRect(x, y, w, h);
+    contexto.strokeStyle = "#aebbc5";
+    contexto.lineWidth = 2;
+    contexto.strokeRect(x, y, w, h);
+  };
+  const textoCentrado = (texto: string, x: number, y: number, w: number, h: number, color: string, fuente: string, maximoLineas = 2, alineacion: CanvasTextAlign = "center") => {
+    contexto.fillStyle = color;
+    contexto.font = fuente;
+    contexto.textAlign = alineacion;
+    const padding = 18;
+    const lineas = ajustarTextoCanvas(contexto, texto, w - padding * 2, maximoLineas);
+    const interlineado = 28;
+    const centroX = alineacion === "left" ? x + padding : alineacion === "right" ? x + w - padding : x + w / 2;
+    const inicioY = y + h / 2 - ((lineas.length - 1) * interlineado) / 2;
+    lineas.forEach((linea, indice) => contexto.fillText(linea, centroX, inicioY + indice * interlineado));
+  };
+
+  rectangulo(0, 0, ancho, tituloAlto, "#c8dfee");
+  textoCentrado("Salidas al ministerio", 0, 10, ancho, 54, "#555b60", "700 38px Arial");
+  textoCentrado(rangoProgramaTexto(desde, hasta), 0, 60, ancho, 42, "#555b60", "400 27px Arial");
+  const cabeceras = ["Día", "Hora", "Lugar de encuentro", "Territorio", "Encargado", "Grupos"];
+  cabeceras.forEach((cabecera, indice) => {
+    rectangulo(columnas[indice], tituloAlto, columnas[indice + 1] - columnas[indice], cabeceraAlto, "#0b3d63");
+    textoCentrado(cabecera, columnas[indice], tituloAlto, columnas[indice + 1] - columnas[indice], cabeceraAlto, "#ffffff", "700 28px Arial");
+  });
+
+  filas.forEach(({ fecha, indiceDia, item, mostrarDia }, indiceFila) => {
+    const y = tituloAlto + cabeceraAlto + indiceFila * filaAlto;
+    const azul = indiceDia % 2 === 0 ? "#c9deef" : "#70a8d5";
+    const tipo = item ? tipoAsignacion(item) : "Salida";
+    const celdas: CeldaImagen[] = [
+      { texto: mostrarDia ? nombreDiaPrograma(fecha) : "", desde: 0, fondo: azul, negrita: true, alineacion: "left" },
+      { texto: item?.hora ?? "", desde: 1, fondo: azul },
+    ];
+    if (item && (tipo === "Sin salida" || tipo === "Reunion")) {
+      celdas.push({ texto: item.puntoEncuentro || (tipo === "Sin salida" ? "No hay salida" : "Reunión"), desde: 2, hasta: 6 });
+    } else {
+      celdas.push(
+        { texto: item?.puntoEncuentro || "", desde: 2 },
+        { texto: item ? etiquetaTerritorioAsignacion(item) : "", desde: 3 },
+        { texto: item?.encargado || "", desde: 4 },
+        { texto: item?.grupo || "", desde: 5 },
+      );
+    }
+    celdas.forEach((celda) => {
+      const hasta = celda.hasta ?? celda.desde + 1;
+      const x = columnas[celda.desde];
+      const w = columnas[hasta] - x;
+      rectangulo(x, y, w, filaAlto, celda.fondo ?? "#ffffff");
+      textoCentrado(celda.texto, x, y, w, filaAlto, "#35393c", `${celda.negrita ? "700" : "500"} 25px Arial`, 2, celda.alineacion);
+    });
+  });
+  return new Promise<Blob>((resolver, rechazar) => canvas.toBlob((blob) => blob ? resolver(blob) : rechazar(new Error("No se pudo generar la imagen.")), "image/png"));
+}
+
+async function guardarProgramaComoImagen() {
+  const blob = await crearImagenPrograma();
+  const { desde } = rangoSemana(new Date(`${semanaPrograma}T12:00:00`));
+  const nombre = `programa-salidas-${desde}.png`;
+  const archivo = new File([blob], nombre, { type: "image/png" });
+  try {
+    if (navigator.share && navigator.canShare?.({ files: [archivo] })) {
+      await navigator.share({ title: "Salidas al ministerio", files: [archivo] });
+      return;
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") return;
+    throw error;
+  }
+  const enlace = document.createElement("a");
+  enlace.href = URL.createObjectURL(blob);
+  enlace.download = nombre;
+  enlace.click();
+  window.setTimeout(() => URL.revokeObjectURL(enlace.href), 1000);
 }
 
 async function compartirPrograma() {
@@ -688,6 +826,7 @@ function bindEvents() {
   document.querySelector("#print-report")?.addEventListener("click",()=>window.print());
   document.querySelector("#open-program")?.addEventListener("click",()=>document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal());
   document.querySelector("#print-program")?.addEventListener("click",imprimirPrograma);
+  document.querySelector("#image-program")?.addEventListener("click",async()=>{try{await guardarProgramaComoImagen();}catch(error){mostrarError(error);}});
   document.querySelector("#share-program")?.addEventListener("click",compartirPrograma);
   document.querySelector("#program-prev")?.addEventListener("click",()=>{semanaPrograma=fechaIsoLocal(desplazarDias(new Date(`${semanaPrograma}T12:00:00`),-7));render();document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();});
   document.querySelector("#program-next")?.addEventListener("click",()=>{semanaPrograma=fechaIsoLocal(desplazarDias(new Date(`${semanaPrograma}T12:00:00`),7));render();document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();});
@@ -703,8 +842,25 @@ function bindEvents() {
   document.querySelector("#request-from-planning")?.addEventListener("click",abrirSolicitud);
   document.querySelectorAll<HTMLButtonElement>("[data-close]").forEach((boton)=>boton.addEventListener("click",()=>document.querySelector<HTMLDialogElement>(`#${boton.dataset.close}`)?.close()));
   const tipoAsignacionSelect=document.querySelector<HTMLSelectElement>("#assignment-type");
-  const actualizarCamposAsignacion=()=>{const tipo=tipoAsignacionSelect?.value;const campo=document.querySelector<HTMLElement>("#assignment-territories-field");const territoriosInput=campo?.querySelector<HTMLInputElement>("input");const encuentro=document.querySelector<HTMLInputElement>("#assignment-form [name=puntoEncuentro]");const esSalida=tipo==="Salida";if(territoriosInput){territoriosInput.disabled=!esSalida;territoriosInput.required=esSalida;}campo?.classList.toggle("field-disabled",!esSalida);if(encuentro){const sugerencias:Record<string,string>={Telefonica:"Zoom",Reunion:"Reunión","Sin salida":"No hay salida"};if(sugerencias[tipo??""])encuentro.value=sugerencias[tipo??""];else if(["Zoom","Reunión","No hay salida"].includes(encuentro.value))encuentro.value="";}};
+  const campoTerritorios=document.querySelector<HTMLElement>("#assignment-territories-field");
+  const territoriosInput=campoTerritorios?.querySelector<HTMLInputElement>("input[name=territorios]");
+  const seleccionTerritorios=new Set(parsearTerritorios(territoriosInput?.value??""));
+  const actualizarSelectorTerritorios=()=>{
+    const ids=[...seleccionTerritorios].sort((a,b)=>a-b);
+    if(territoriosInput)territoriosInput.value=ids.join(",");
+    const resumen=document.querySelector<HTMLElement>("#territory-selection");
+    if(resumen)resumen.innerHTML=ids.length?ids.map((id)=>`<button type="button" data-remove-territory="${id}" aria-label="Quitar territorio ${id}"><span>T${id}</span><b>×</b></button>`).join(""):'<span class="territory-placeholder">Elegí uno o más territorios</span>';
+    const contador=document.querySelector<HTMLElement>("#territory-count");
+    if(contador)contador.textContent=`${ids.length} ${ids.length===1?"seleccionado":"seleccionados"}`;
+    document.querySelectorAll<HTMLButtonElement>("[data-territory-option]").forEach((boton)=>{const activo=seleccionTerritorios.has(Number(boton.dataset.territoryOption));boton.classList.toggle("selected",activo);boton.setAttribute("aria-pressed",String(activo));});
+  };
+  document.querySelectorAll<HTMLButtonElement>("[data-territory-option]").forEach((boton)=>boton.addEventListener("click",()=>{const id=Number(boton.dataset.territoryOption);if(seleccionTerritorios.has(id))seleccionTerritorios.delete(id);else seleccionTerritorios.add(id);actualizarSelectorTerritorios();}));
+  document.querySelector("#territory-selection")?.addEventListener("click",(evento)=>{const boton=(evento.target as HTMLElement).closest<HTMLButtonElement>("[data-remove-territory]");if(!boton)return;seleccionTerritorios.delete(Number(boton.dataset.removeTerritory));actualizarSelectorTerritorios();});
+  document.querySelector<HTMLInputElement>("#territory-filter")?.addEventListener("input",(evento)=>{const filtro=(evento.currentTarget as HTMLInputElement).value.replace(/\D/g,"");document.querySelectorAll<HTMLButtonElement>("[data-territory-option]").forEach((boton)=>boton.hidden=Boolean(filtro)&&!String(boton.dataset.territoryOption).includes(filtro));});
+  actualizarSelectorTerritorios();
+  const actualizarCamposAsignacion=()=>{const tipo=tipoAsignacionSelect?.value;const encuentro=document.querySelector<HTMLTextAreaElement>("#assignment-form [name=puntoEncuentro]");const esSalida=tipo==="Salida";campoTerritorios?.classList.toggle("field-disabled",!esSalida);campoTerritorios?.querySelectorAll<HTMLInputElement|HTMLButtonElement>("input,button").forEach((control)=>control.disabled=!esSalida);if(encuentro){const sugerencias:Record<string,string>={Telefonica:"Zoom",Reunion:"Reunión","Sin salida":"No hay salida"};if(sugerencias[tipo??""])encuentro.value=sugerencias[tipo??""];else if(["Zoom","Reunión","No hay salida"].includes(encuentro.value))encuentro.value="";}};
   tipoAsignacionSelect?.addEventListener("change",actualizarCamposAsignacion);
+  document.querySelectorAll<HTMLButtonElement>("[data-delete-assignment]").forEach((boton)=>boton.addEventListener("click",async()=>{const id=boton.dataset.deleteAssignment;if(!id||!confirm("¿Eliminar esta salida del programa? Esta acción no se puede deshacer."))return;boton.disabled=true;try{await eliminarAsignacion(id);datosAplicacion.asignaciones=datosAplicacion.asignaciones.filter((item)=>item.id!==id);refrescarDatosLocales();render();document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();}catch(error){mostrarError(error);boton.disabled=false;}}));
   document.querySelector<HTMLSelectElement>("#request-scope")?.addEventListener("change",(event)=>{const seleccion=(event.currentTarget as HTMLSelectElement).value;const fieldset=document.querySelector<HTMLFieldSetElement>("#request-blocks");if(fieldset)fieldset.disabled=seleccion==="Territorio completo";});
   document.querySelectorAll<HTMLButtonElement>("[data-request-approve]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await resolverSolicitud(boton.dataset.requestApprove!,"Aprobada");refrescarDatosLocales();render();}catch(error){mostrarError(error);}}));
   document.querySelectorAll<HTMLButtonElement>("[data-request-reject]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await resolverSolicitud(boton.dataset.requestReject!,"Rechazada");refrescarDatosLocales();render();}catch(error){mostrarError(error);}}));

@@ -50,6 +50,14 @@ export function guardarAsignacionLocal(asignacion: Omit<Asignacion, "id">) {
   return nueva;
 }
 
+export function eliminarAsignacionLocal(id: string) {
+  const datos = obtenerDatosLocales();
+  const cantidadAnterior = datos.asignaciones.length;
+  datos.asignaciones = datos.asignaciones.filter((item) => item.id !== id);
+  if (datos.asignaciones.length === cantidadAnterior) throw new Error("La salida ya no existe.");
+  guardarDatosLocales(datos);
+}
+
 export function guardarCampanaLocal(campana: Omit<Campana, "id">) {
   const datos = obtenerDatosLocales();
   const nueva = { ...campana, id: crypto.randomUUID(), demo: false, creadoEn: new Date().toISOString() };

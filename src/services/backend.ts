@@ -8,6 +8,7 @@ import {
   actualizarCuadraLocal,
   cerrarSolicitudLocal,
   crearSolicitudLocal,
+  eliminarAsignacionLocal,
   guardarAsignacionLocal,
   guardarCampanaLocal,
   guardarRegistroLocal,
@@ -270,7 +271,7 @@ export async function guardarConfiguracion(configuracion:ConfiguracionOperacion)
 }
 
 export async function eliminarAsignacion(id: string) {
-  if (!firebaseConfigurado) throw new Error("La eliminación local se habilita al conectar la administración compartida.");
+  if (!firebaseConfigurado) return eliminarAsignacionLocal(id);
   if (!firestoreSdk) throw new Error("La sincronización todavía no está lista.");
   await firestoreSdk.deleteDoc(firestoreSdk.doc(exigirAdmin(), "asignaciones", id));
 }

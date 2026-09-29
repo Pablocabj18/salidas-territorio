@@ -4,6 +4,8 @@ import {
   actualizarCuadraLocal,
   cerrarSolicitudLocal,
   crearSolicitudLocal,
+  eliminarAsignacionLocal,
+  guardarAsignacionLocal,
   obtenerDatosLocales,
   resolverSolicitudLocal,
 } from "./registros";
@@ -55,5 +57,22 @@ describe("solicitudes y seguimiento local", () => {
     const progreso = obtenerDatosLocales().progresoCuadras[0];
     expect(progreso.estado).toBe("Pendiente");
     expect(progreso.historial?.map((item) => item.estado)).toEqual(["Completada", "Pendiente"]);
+  });
+
+  it("permite eliminar una salida programada por equivocación", () => {
+    const salida = guardarAsignacionLocal({
+      territorioId: 21,
+      territorioIds: [21, 31, 42],
+      fecha: "2026-09-30",
+      hora: "09:30",
+      grupo: "Grupo 1",
+      puntoEncuentro: "Salón del Reino",
+      encargado: "Encargado",
+      tipo: "Salida",
+      estado: "Programada",
+    });
+
+    eliminarAsignacionLocal(salida.id);
+    expect(obtenerDatosLocales().asignaciones.some((item) => item.id === salida.id)).toBe(false);
   });
 });
