@@ -37,16 +37,17 @@ npm run build
 
 Sin configuración de Firebase funciona en modo demostración y guarda los cambios únicamente en el navegador actual.
 
-## Activar datos compartidos con Firebase
+## Datos compartidos con Firebase
 
-1. Crear un proyecto y una aplicación web en [Firebase Console](https://console.firebase.google.com/).
-2. Activar **Firestore Database** y **Authentication > Google**.
-3. Copiar `.env.example` como `.env.local` y completar la configuración pública de la aplicación web.
-4. Publicar `firestore.rules` desde la consola o con Firebase CLI.
-5. Iniciar sesión una vez y buscar el UID del usuario en Authentication.
-6. Crear manualmente `administradores/{UID}` en Firestore con el campo booleano `activo: true`.
+La aplicación está conectada al proyecto `salidas-territorio-pablo`. Usa Firestore en `southamerica-east1`, Authentication con Google y el plan gratuito Spark. La configuración pública de la aplicación web está incluida como valor predeterminado en `src/config/firebase.ts`; se puede reemplazar mediante variables `VITE_FIREBASE_*` para otro entorno.
 
-En GitHub Pages, cargar los seis valores `VITE_FIREBASE_*` como *Repository secrets*. El workflow ya los entrega al build. La configuración web identifica el proyecto, pero la seguridad real la aplican `firestore.rules`; nunca se debe subir una cuenta de servicio.
+Para republicar las reglas:
+
+```bash
+firebase deploy --only firestore:rules
+```
+
+La configuración web identifica el proyecto, pero la seguridad real la aplican `firestore.rules`; nunca se debe subir una cuenta de servicio.
 
 Colecciones usadas:
 
