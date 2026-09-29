@@ -21,6 +21,9 @@ export interface RegistroSalida {
   id: string;
   fecha: string;
   territorioId: number;
+  territorioIds?: number[];
+  asignacionId?: string;
+  cuadraIds?: string[];
   hermanos: number;
   modalidad: Modalidad;
   cobertura: number;
@@ -46,6 +49,7 @@ export interface Asignacion {
   id: string;
   territorioId?: number;
   territorioIds?: number[];
+  cuadraIds?: string[];
   fecha: string;
   hora: string;
   grupo: string;
@@ -55,6 +59,8 @@ export interface Asignacion {
   estado: "Programada" | "Completada" | "Cancelada";
   creadoPor?: string;
   creadoEn?: string;
+  actualizadoEn?: string;
+  completadaEn?: string;
   demo?: boolean;
 }
 

@@ -14,6 +14,10 @@ export function perteneceAlMes(registro: RegistroSalida, fecha: Date, desplazami
   return registro.fecha.slice(0, 7) === claveMes(desplazarMes(fecha, desplazamiento));
 }
 
+export function territoriosDeRegistro(registro: RegistroSalida) {
+  return registro.territorioIds?.length ? registro.territorioIds : [registro.territorioId];
+}
+
 export function promedio(valores: number[]) {
   return valores.length ? Math.round(valores.reduce((a, b) => a + b, 0) / valores.length) : 0;
 }

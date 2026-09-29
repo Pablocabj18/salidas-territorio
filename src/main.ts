@@ -4,11 +4,13 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import "./styles.css";
 import { categorias, colorCategoria, territorios } from "./data/territorios";
 import {
+  actualizarAsignacion,
   actualizarCampana,
   actualizarCuadra,
   cerrarSolicitud,
   cerrarSesion,
   crearSolicitud,
+  completarAsignacion,
   eliminarAsignacion,
   firebaseConfigurado,
   guardarAsignacion,
@@ -20,7 +22,7 @@ import {
   resolverSolicitud,
 } from "./services/backend";
 import { obtenerDatosLocales, restaurarDemo } from "./services/registros";
-import { diasTranscurridos, diferenciaPorcentual, perteneceAlMes, promedio } from "./services/metricas";
+import { diasTranscurridos, diferenciaPorcentual, perteneceAlMes, promedio, territoriosDeRegistro } from "./services/metricas";
 import type { AlcanceSolicitud, Asignacion, Categoria, ConfiguracionOperacion, DatosAplicacion, EstadoCuadra, EstadoDatos, Modalidad, RegistroSalida, SolicitudTerritorio, Territorio, UsuarioSesion } from "./types/domain";
 import { desplazarDias, fechaIsoLocal, parsearTerritorios, rangoSemana } from "./utils/programa";
 
@@ -54,6 +56,8 @@ let usuario: UsuarioSesion | null = null;
 let modoCampana = false;
 let tarjetaMinimizada = window.innerWidth <= 760;
 let semanaPrograma = rangoSemana(HOY).desde;
+let asignacionEditandoId: string | null = null;
+let asignacionFinalizandoId: string | null = null;
 
 const fechaCorta = new Intl.DateTimeFormat("es-AR", { day: "numeric", month: "short" });
 const mesNombre = new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric" });
@@ -118,7 +122,7 @@ function estadoTerritorio(registros: RegistroSalida[]): Estado {
   return "Atrasado";
 }
 
-function registrosDe(id: number) { return datosAplicacion.registros.filter((r) => r.territorioId === id); }
+function registrosDe(id: number) { return datosAplicacion.registros.filter((r) => territoriosDeRegistro(r).includes(id)); }
 function enMes(registro: RegistroSalida, desplazamiento = 0) { return perteneceAlMes(registro, HOY, desplazamiento); }
 
 function configuracionCobertura(): ConfiguracionOperacion {
@@ -183,7 +187,7 @@ function datosGlobales() {
   const registros = datosAplicacion.registros;
   const actuales = registros.filter((r) => enMes(r));
   const anteriores = registros.filter((r) => enMes(r, -1));
-  const territoriosMes = new Set(actuales.map((r) => r.territorioId)).size;
+  const territoriosMes = new Set(actuales.flatMap(territoriosDeRegistro)).size;
   return {
     registros, actuales, anteriores, territoriosMes,
     hermanos: actuales.reduce((t, r) => t + r.hermanos, 0),
@@ -250,7 +254,7 @@ function render() {
       </section>
       <aside class="detail-panel">${panelActivo === "mapa" ? panelMapa(actual, metrica) : panelActivo === "estadisticas" ? panelTerritorio(actual, metrica) : panelActivo === "planificacion" ? panelPlanificacion() : panelInforme(global)}</aside>
     </main>
-    ${modalRegistro()}${modalAsignacion()}${modalCampana()}${modalSolicitud()}${modalPrograma()}`;
+    ${modalRegistro()}${modalAsignacion()}${modalFinalizarAsignacion()}${modalCampana()}${modalSolicitud()}${modalPrograma()}`;
   iniciarMapa(filtrados);
   bindEvents();
 }
@@ -348,6 +352,7 @@ function panelPlanificacion() {
   const prioridades = territorios.map((t) => ({ t, m: metricasTerritorio(t) })).sort((a,b) => diasDesde(b.m.ultima?.fecha) - diasDesde(a.m.ultima?.fecha)).slice(0,6);
   const bajoApoyo = territorios.map((t)=>({t,m:metricasTerritorio(t)})).filter(({m})=>m.actuales.length && m.apoyo < 4).sort((a,b)=>a.m.apoyo-b.m.apoyo).slice(0,3);
   const proximas = [...datosAplicacion.asignaciones].filter((item) => item.estado === "Programada" && item.fecha >= HOY.toISOString().slice(0,10)).sort((a,b) => `${a.fecha}${a.hora}`.localeCompare(`${b.fecha}${b.hora}`)).slice(0,4);
+  const finalizadas = [...datosAplicacion.asignaciones].filter((item) => item.estado === "Completada").sort((a,b) => (b.completadaEn??b.fecha).localeCompare(a.completadaEn??a.fecha)).slice(0,3);
   const campana = datosAplicacion.campanas.find((item) => item.activa);
   const porcentajeCampana = campana ? Math.round(campana.completados.length / Math.max(1, campana.territorioIds.length) * 100) : 0;
   const puedeEditar = estadoDatos.modo === "local" || usuario?.rol === "administrador";
@@ -358,6 +363,7 @@ function panelPlanificacion() {
     ${campana ? `<div class="campaign-card"><div class="campaign-heading"><span>CAMPAÑA ACTIVA</span><b>${escaparHtml(campana.nombre)}</b></div><strong>${campana.completados.length}<small>/${campana.territorioIds.length}</small></strong><div class="report-progress"><i style="width:${porcentajeCampana}%"></i></div><p>${porcentajeCampana}% completado · ${formatearRango(campana.desde, campana.hasta)}</p></div>` : '<div class="empty-campaign"><strong>Sin campaña activa</strong><p>Podés crear una para seguir el avance territorial.</p></div>'}
     <div class="section-title"><span>Próximas salidas</span><button id="new-assignment" ${puedeEditar ? "" : "disabled"}>+ Nueva salida</button></div>
     <div class="assignment-list">${proximas.map(tarjetaAsignacion).join("") || '<p class="empty">No hay asignaciones próximas.</p>'}</div>
+    ${finalizadas.length?`<div class="section-title"><span>Finalizadas recientemente</span></div><div class="assignment-list completed-list">${finalizadas.map(tarjetaAsignacion).join("")}</div>`:""}
     <div class="section-title"><span>Solicitudes personales</span><button id="request-from-planning" ${puedeSolicitar ? "" : "disabled"}>+ Solicitar T${seleccionado}</button></div>
     <div class="request-list">${solicitudes.map(tarjetaSolicitud).join("") || `<p class="empty">${firebaseConfigurado && !usuario ? "Ingresá para solicitar y ver tus pedidos." : "Todavía no hay solicitudes."}</p>`}</div>
     <div class="planner-intro"><strong>Prioridades sugeridas</strong><p>Se ordenan por días desde la última salida y luego sirven de base al programa. Son ayudas organizativas, no evaluaciones personales.</p></div>
@@ -368,7 +374,7 @@ function panelPlanificacion() {
 
 function tarjetaAsignacion(asignacion: Asignacion) {
   const territorioPrincipal = territoriosAsignacion(asignacion)[0];
-  const contenido = `<time>${fechaCorta.format(new Date(`${asignacion.fecha}T12:00:00`))}<b>${escaparHtml(asignacion.hora)}</b></time><div><strong>${escaparHtml(etiquetaTerritorioAsignacion(asignacion))} · ${escaparHtml(asignacion.encargado || asignacion.grupo || "Sin encargado")}</strong><small>${escaparHtml(asignacion.puntoEncuentro || "Punto a confirmar")}${asignacion.grupo ? ` · ${escaparHtml(asignacion.grupo)}` : ""}</small></div>${asignacion.demo ? '<span class="demo-tag">DEMO</span>' : ""}`;
+  const contenido = `<time>${fechaCorta.format(new Date(`${asignacion.fecha}T12:00:00`))}<b>${escaparHtml(asignacion.hora)}</b></time><div><strong>${escaparHtml(etiquetaTerritorioAsignacion(asignacion))} · ${escaparHtml(asignacion.encargado || asignacion.grupo || "Sin encargado")}</strong><small>${escaparHtml(asignacion.puntoEncuentro || "Punto a confirmar")}${asignacion.grupo ? ` · ${escaparHtml(asignacion.grupo)}` : ""}</small></div>${asignacion.estado==="Completada"?'<span class="done-tag">✓ HECHA</span>':asignacion.demo ? '<span class="demo-tag">DEMO</span>' : ""}`;
   return territorioPrincipal
     ? `<button data-select="${territorioPrincipal}" class="assignment-item">${contenido}</button>`
     : `<article class="assignment-item static">${contenido}</article>`;
@@ -555,20 +561,53 @@ function modalRegistro() {
 
 function modalAsignacion() {
   const manana = new Date(HOY); manana.setDate(manana.getDate() + 1);
-  const opcionesTerritorio = territorios.map((territorio) => `<button type="button" class="territory-option ${territorio.id === seleccionado ? "selected" : ""}" data-territory-option="${territorio.id}" aria-pressed="${territorio.id === seleccionado}">${territorio.id}</button>`).join("");
-  return `<dialog id="assignment-dialog" class="assignment-dialog"><form id="assignment-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">PROGRAMA SEMANAL</span><h2>Nueva salida</h2></div><button type="button" data-close="assignment-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">Armá la fila tal como aparecerá en el programa. Podés seleccionar todos los territorios que necesites.</p><div class="form-grid assignment-grid">
-    <label class="full">Tipo de actividad<select required name="tipo" id="assignment-type"><option value="Salida">Salida al ministerio</option><option value="Telefonica">Predicación telefónica</option><option value="Revisitas">Revisitas</option><option value="Reunion">Reunión</option><option value="Sin salida">No hay salida</option></select></label>
-    <label>Fecha<input required name="fecha" type="date" value="${fechaIsoLocal(manana)}"></label><label>Hora<input required name="hora" type="time" value="09:30"></label>
-    <label class="full meeting-field">Lugar de encuentro<textarea required name="puntoEncuentro" maxlength="140" rows="2" placeholder="Ej.: Flia. Quiroga (Gral. Savio 549)"></textarea><small>Este dato tendrá el espacio principal en la planilla y en la imagen.</small></label>
+  const edicion = asignacionEditandoId ? datosAplicacion.asignaciones.find((item) => item.id === asignacionEditandoId) : undefined;
+  const idsSeleccionados = edicion ? territoriosAsignacion(edicion) : [seleccionado];
+  const seleccionados = new Set(idsSeleccionados);
+  const tipoActual = edicion ? tipoAsignacion(edicion) : "Salida";
+  const tipos: Array<{ valor: NonNullable<Asignacion["tipo"]>; etiqueta: string }> = [
+    { valor:"Salida", etiqueta:"Salida al ministerio" }, { valor:"Telefonica", etiqueta:"Predicación telefónica" }, { valor:"Revisitas", etiqueta:"Revisitas" }, { valor:"Reunion", etiqueta:"Reunión" }, { valor:"Sin salida", etiqueta:"No hay salida" },
+  ];
+  const opcionesTerritorio = territorios.map((territorio) => `<button type="button" class="territory-option ${seleccionados.has(territorio.id) ? "selected" : ""}" data-territory-option="${territorio.id}" aria-pressed="${seleccionados.has(territorio.id)}">${territorio.id}</button>`).join("");
+  const cuadrasSeleccionadas = new Set(edicion?.cuadraIds ?? []);
+  const cuadrasDisponibles = geometriasCuadras?.features?.filter((feature:any) => seleccionados.has(Number(feature.properties?.territorioId))) ?? [];
+  const opcionesCuadra = cuadrasDisponibles.map((feature:any) => { const id=String(feature.properties.id);const territorioId=Number(feature.properties.territorioId);return `<label><input type="checkbox" name="cuadraIds" value="${escaparHtml(id)}" ${cuadrasSeleccionadas.has(id)?"checked":""}><span>T${territorioId} · C${feature.properties.numero}</span></label>`; }).join("");
+  return `<dialog id="assignment-dialog" class="assignment-dialog"><form id="assignment-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">PROGRAMA SEMANAL</span><h2>${edicion ? "Editar salida" : "Nueva salida"}</h2></div><button type="button" data-close="assignment-dialog" aria-label="Cerrar">×</button></div><p class="modal-copy">${edicion ? "Corregí los datos sin perder el registro del programa." : "Armá la fila tal como aparecerá en el programa."} Podés elegir varios territorios y las cuadras previstas.</p><div class="form-grid assignment-grid">
+    <label class="full">Tipo de actividad<select required name="tipo" id="assignment-type">${tipos.map((item)=>`<option value="${item.valor}" ${item.valor===tipoActual?"selected":""}>${item.etiqueta}</option>`).join("")}</select></label>
+    <label>Fecha<input required name="fecha" type="date" value="${escaparHtml(edicion?.fecha ?? fechaIsoLocal(manana))}"></label><label>Hora<input required name="hora" type="time" value="${escaparHtml(edicion?.hora ?? "09:30")}"></label>
+    <label class="full meeting-field">Lugar de encuentro<textarea required name="puntoEncuentro" maxlength="140" rows="2" placeholder="Ej.: Flia. Quiroga (Gral. Savio 549)">${escaparHtml(edicion?.puntoEncuentro ?? "")}</textarea><small>Este dato tendrá el espacio principal en la planilla y en la imagen.</small></label>
     <div id="assignment-territories-field" class="form-field full"><span class="field-label">Territorios</span><div class="territory-picker">
-      <div class="territory-picker-summary"><div id="territory-selection" class="territory-selection"></div><strong id="territory-count">1 seleccionado</strong></div>
-      <input type="hidden" name="territorios" value="${seleccionado}">
+      <div class="territory-picker-summary"><div id="territory-selection" class="territory-selection"></div><strong id="territory-count">${idsSeleccionados.length} seleccionados</strong></div>
+      <input type="hidden" name="territorios" value="${idsSeleccionados.join(",")}">
       <label class="territory-search"><span aria-hidden="true">⌕</span><input id="territory-filter" type="search" inputmode="numeric" placeholder="Buscar un número" aria-label="Buscar territorio"></label>
       <div id="territory-options" class="territory-options" aria-label="Elegir territorios">${opcionesTerritorio}</div>
     </div><small>Tocá cada número para agregarlo o quitarlo. No hay límite dentro de los 96 territorios.</small></div>
-    <label>Encargado<input name="encargado" maxlength="55" placeholder="Nombre corto o rol"></label>
-    <label>Grupos<input name="grupo" maxlength="55" placeholder="Ej.: Grupo 1, Grupo 2 o -"></label>
-  </div><div class="modal-actions"><button type="button" data-close="assignment-dialog">Cancelar</button><button type="submit">Agregar al programa</button></div></form></dialog>`;
+    <div id="assignment-blocks-field" class="form-field full"><div class="field-heading"><span class="field-label">Cuadras previstas</span><button type="button" id="select-all-assignment-blocks">Seleccionar todas</button></div><div id="assignment-block-options" class="assignment-block-options">${opcionesCuadra || '<p>Elegí territorios para ver sus cuadras.</p>'}</div><small>Al finalizar la salida podrás confirmar cuáles se completaron realmente.</small></div>
+    <label>Encargado<input name="encargado" maxlength="55" value="${escaparHtml(edicion?.encargado ?? "")}" placeholder="Nombre corto o rol"></label>
+    <label>Grupos<input name="grupo" maxlength="55" value="${escaparHtml(edicion?.grupo ?? "")}" placeholder="Ej.: Grupo 1, Grupo 2 o -"></label>
+  </div><div class="modal-actions"><button type="button" data-close="assignment-dialog">Cancelar</button><button type="submit">${edicion ? "Guardar cambios" : "Agregar al programa"}</button></div></form></dialog>`;
+}
+
+function modalFinalizarAsignacion() {
+  const asignacion = asignacionFinalizandoId ? datosAplicacion.asignaciones.find((item) => item.id === asignacionFinalizandoId) : undefined;
+  if (!asignacion) return `<dialog id="complete-assignment-dialog"></dialog>`;
+  const ids = territoriosAsignacion(asignacion);
+  const cuadras = asignacion.cuadraIds ?? [];
+  const modalidadSugerida: Modalidad = tipoAsignacion(asignacion) === "Revisitas" ? "Revisitas" : tipoAsignacion(asignacion) === "Telefonica" ? "Telefonica" : "Casa en casa";
+  const modalidades: Modalidad[] = ["Casa en casa","Revisitas","Exhibidores","Cartas","Telefonica","Informal"];
+  return `<dialog id="complete-assignment-dialog" class="assignment-dialog complete-assignment-dialog"><form id="complete-assignment-form" method="dialog"><div class="modal-head"><div><span class="eyebrow">RESULTADOS GENERALES</span><h2>Finalizar salida</h2></div><button type="button" data-close="complete-assignment-dialog" aria-label="Cerrar">×</button></div>
+    <div class="completion-summary"><div><span>${nombreDiaPrograma(asignacion.fecha)} · ${escaparHtml(asignacion.hora)}</span><strong>${escaparHtml(asignacion.puntoEncuentro || "Punto a confirmar")}</strong></div><b>Territorios ${escaparHtml(ids.join(" · "))}</b></div>
+    <p class="modal-copy">Cargá cantidades generales, sin nombres de publicadores. Este único registro actualizará todos los territorios de la salida sin duplicar el apoyo total.</p>
+    <div class="form-grid assignment-grid">
+      <label>Fecha realizada<input required name="fecha" type="date" value="${escaparHtml(asignacion.fecha)}"></label>
+      <label>Modalidad<select required name="modalidad">${modalidades.map((item)=>`<option ${item===modalidadSugerida?"selected":""}>${item}</option>`).join("")}</select></label>
+      <label>Hermanos que participaron<input required name="hermanos" type="number" min="1" max="99" value="4"></label>
+      <label>Cobertura aproximada (%)<input required name="cobertura" type="number" min="0" max="100" value="${cuadras.length?100:50}"></label>
+      <label>Revisitas realizadas<input required name="revisitas" type="number" min="0" value="0"></label>
+      <label>Cursos bíblicos<input required name="cursos" type="number" min="0" value="0"></label>
+      ${cuadras.length ? `<fieldset class="full completion-blocks"><legend>Cuadras completadas</legend><p>Desmarcá las que hayan quedado pendientes.</p><div>${cuadras.map((id)=>`<label><input type="checkbox" name="cuadraId" value="${escaparHtml(id)}" checked><span>${escaparHtml(id.replace("-C"," · C"))}</span></label>`).join("")}</div></fieldset>` : ""}
+      <label class="full">Observación general<textarea name="observacion" maxlength="180" placeholder="Ej.: quedaron dos cuadras para la próxima salida"></textarea></label>
+    </div><div class="modal-actions"><button type="button" data-close="complete-assignment-dialog">Cancelar</button><button type="submit">Guardar resultados</button></div></form></dialog>`;
 }
 
 function modalPrograma() {
@@ -585,17 +624,17 @@ function modalPrograma() {
       const tipo = tipoAsignacion(item);
       const dia = indiceSalida === 0 ? nombreDiaPrograma(fecha) : "";
       const inicioFila = `<td class="program-day">${dia}</td><td class="program-time">${escaparHtml(item.hora)}</td>`;
-      const eliminar = puedeEditarPrograma() ? `<button type="button" class="program-delete" data-delete-assignment="${escaparHtml(item.id)}" aria-label="Eliminar esta salida" title="Eliminar salida">×</button>` : "";
+      const acciones = puedeEditarPrograma() ? `<span class="program-row-actions">${tipo === "Salida" && territoriosAsignacion(item).length ? `<button type="button" class="program-complete" data-complete-assignment="${escaparHtml(item.id)}" aria-label="Finalizar esta salida" title="Finalizar y cargar resultados">✓</button>` : ""}<button type="button" class="program-edit" data-edit-assignment="${escaparHtml(item.id)}" aria-label="Editar esta salida" title="Editar salida">✎</button><button type="button" class="program-delete" data-delete-assignment="${escaparHtml(item.id)}" aria-label="Eliminar esta salida" title="Eliminar salida">×</button></span>` : "";
       if (tipo === "Sin salida" || tipo === "Reunion") {
         const texto = item.puntoEncuentro || (tipo === "Sin salida" ? "No hay salida" : "Reunión");
-        return `<tr class="day-${tono} program-special-row">${inicioFila}<td colspan="4" class="program-special"><span>${escaparHtml(texto)}</span>${eliminar}</td></tr>`;
+        return `<tr class="day-${tono} program-special-row">${inicioFila}<td colspan="4" class="program-special"><span>${escaparHtml(texto)}</span>${acciones}</td></tr>`;
       }
-      return `<tr class="day-${tono}">${inicioFila}<td class="program-meeting">${escaparHtml(item.puntoEncuentro || "A confirmar")}</td><td>${escaparHtml(etiquetaTerritorioAsignacion(item))}</td><td>${escaparHtml(item.encargado || "")}</td><td class="program-groups"><span>${escaparHtml(item.grupo || "")}</span>${eliminar}</td></tr>`;
+      return `<tr class="day-${tono}">${inicioFila}<td class="program-meeting">${escaparHtml(item.puntoEncuentro || "A confirmar")}</td><td class="program-territories"><span>${escaparHtml(etiquetaTerritorioAsignacion(item))}</span>${item.cuadraIds?.length?`<small>${item.cuadraIds.length} cuadras</small>`:""}</td><td>${escaparHtml(item.encargado || "")}</td><td class="program-groups"><span>${escaparHtml(item.grupo || "")}</span>${acciones}</td></tr>`;
     }).join("");
   }).join("");
   const puedeEditar = puedeEditarPrograma();
   return `<dialog id="program-dialog" class="program-dialog"><div class="program-shell">
-    <div class="program-toolbar"><div class="program-week-nav"><button id="program-prev" aria-label="Semana anterior">←</button><span>Cambiar semana</span><button id="program-next" aria-label="Semana siguiente">→</button></div><div class="program-toolbar-actions">${puedeEditar ? '<button id="program-new-assignment">+ Nueva salida</button>' : ""}<button id="share-program">Compartir</button><button id="image-program">Guardar imagen</button><button id="print-program" class="primary">Imprimir / PDF</button><button type="button" class="program-close" data-close="program-dialog" aria-label="Cerrar">×</button></div></div>
+    <div class="program-toolbar"><div class="program-week-nav"><button id="program-prev" aria-label="Semana anterior">←</button><span>Cambiar semana</span><button id="program-next" aria-label="Semana siguiente">→</button></div><div class="program-toolbar-actions">${puedeEditar ? '<button id="program-duplicate-week">Duplicar anterior</button><button id="program-new-assignment">+ Nueva salida</button>' : ""}<button id="share-program">Compartir</button><button id="image-program">Guardar imagen</button><button id="print-program" class="primary">Imprimir / PDF</button><button type="button" class="program-close" data-close="program-dialog" aria-label="Cerrar">×</button></div></div>
     <p class="program-mobile-hint">Deslizá la tabla hacia los costados para verla completa.</p>
     <div class="program-scroll"><table class="program-table"><colgroup><col class="col-day"><col class="col-time"><col class="col-meeting"><col class="col-territory"><col class="col-manager"><col class="col-groups"></colgroup><thead><tr class="program-title-row"><th colspan="6"><strong>Salidas al ministerio</strong><span>${rangoProgramaTexto(desde, hasta)}</span></th></tr><tr class="program-column-row"><th>Día</th><th>Hora</th><th>Lugar de encuentro</th><th>Territorio</th><th>Encargado</th><th>Grupos</th></tr></thead><tbody>${filas}</tbody></table></div>
   </div></dialog>`;
@@ -603,6 +642,32 @@ function modalPrograma() {
 
 function puedeEditarPrograma() {
   return estadoDatos.modo === "local" || usuario?.rol === "administrador";
+}
+
+function firmaAsignacion(asignacion: Pick<Asignacion,"fecha"|"hora"|"tipo"|"puntoEncuentro"|"territorioIds"|"territorioId">) {
+  const ids = asignacion.territorioIds?.length ? asignacion.territorioIds : typeof asignacion.territorioId === "number" ? [asignacion.territorioId] : [];
+  return [asignacion.fecha, asignacion.hora, asignacion.tipo ?? "Salida", asignacion.puntoEncuentro, ids.join(",")].join("|");
+}
+
+async function duplicarSemanaAnterior() {
+  const inicioActual = new Date(`${semanaPrograma}T12:00:00`);
+  const inicioAnterior = fechaIsoLocal(desplazarDias(inicioActual, -7));
+  const finAnterior = fechaIsoLocal(desplazarDias(inicioActual, -1));
+  const anteriores = datosAplicacion.asignaciones.filter((item) => item.fecha >= inicioAnterior && item.fecha <= finAnterior && item.estado !== "Cancelada");
+  if (!anteriores.length) return alert("La semana anterior no tiene actividades para copiar.");
+  if (!confirm(`Se copiarán ${anteriores.length} actividades a la semana actual. Las repetidas se omitirán. ¿Continuar?`)) return;
+  const existentes = new Set(datosAplicacion.asignaciones.filter((item) => item.fecha >= semanaPrograma && item.fecha <= fechaIsoLocal(desplazarDias(inicioActual,6))).map(firmaAsignacion));
+  const nuevas: Array<Omit<Asignacion,"id">> = anteriores.map((item) => {
+    const { id: _id, creadoPor: _creadoPor, creadoEn: _creadoEn, actualizadoEn: _actualizadoEn, completadaEn: _completadaEn, demo: _demo, ...base } = item;
+    return { ...base, fecha: fechaIsoLocal(desplazarDias(new Date(`${item.fecha}T12:00:00`),7)), estado:"Programada" as const };
+  }).filter((item) => !existentes.has(firmaAsignacion(item)));
+  if (!nuevas.length) return alert("La semana actual ya contiene esas actividades.");
+  const guardadas = await Promise.all(nuevas.map((item) => guardarAsignacion(item)));
+  const combinadas = new globalThis.Map([...datosAplicacion.asignaciones, ...guardadas].map((item) => [item.id,item]));
+  datosAplicacion.asignaciones = [...combinadas.values()];
+  refrescarDatosLocales();
+  render();
+  document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();
 }
 
 function modalCampana() {
@@ -826,8 +891,9 @@ function bindEvents() {
   const dialog=document.querySelector<HTMLDialogElement>("#record-dialog");
   ["#new-record-top","#new-record-inline","#new-record-detail"].forEach(id=>document.querySelector(id)?.addEventListener("click",()=>dialog?.showModal()));
   ["#close-dialog","#cancel-dialog"].forEach(id=>document.querySelector(id)?.addEventListener("click",()=>dialog?.close()));
-  document.querySelector("#new-assignment")?.addEventListener("click",()=>document.querySelector<HTMLDialogElement>("#assignment-dialog")?.showModal());
-  document.querySelector("#program-new-assignment")?.addEventListener("click",()=>{document.querySelector<HTMLDialogElement>("#program-dialog")?.close();document.querySelector<HTMLDialogElement>("#assignment-dialog")?.showModal();});
+  document.querySelector("#new-assignment")?.addEventListener("click",()=>{asignacionEditandoId=null;render();document.querySelector<HTMLDialogElement>("#assignment-dialog")?.showModal();});
+  document.querySelector("#program-new-assignment")?.addEventListener("click",()=>{asignacionEditandoId=null;render();document.querySelector<HTMLDialogElement>("#assignment-dialog")?.showModal();});
+  document.querySelector("#program-duplicate-week")?.addEventListener("click",async()=>{try{await duplicarSemanaAnterior();}catch(error){mostrarError(error);}});
   document.querySelector("#new-campaign")?.addEventListener("click",()=>document.querySelector<HTMLDialogElement>("#campaign-dialog")?.showModal());
   const abrirSolicitud=async()=>{if(firebaseConfigurado&&!usuario){try{await accederConGoogle();}catch(error){mostrarError(error);}return;}document.querySelector<HTMLDialogElement>("#request-dialog")?.showModal();};
   document.querySelector("#request-territory")?.addEventListener("click",abrirSolicitud);
@@ -835,8 +901,18 @@ function bindEvents() {
   document.querySelectorAll<HTMLButtonElement>("[data-close]").forEach((boton)=>boton.addEventListener("click",()=>document.querySelector<HTMLDialogElement>(`#${boton.dataset.close}`)?.close()));
   const tipoAsignacionSelect=document.querySelector<HTMLSelectElement>("#assignment-type");
   const campoTerritorios=document.querySelector<HTMLElement>("#assignment-territories-field");
+  const campoCuadras=document.querySelector<HTMLElement>("#assignment-blocks-field");
   const territoriosInput=campoTerritorios?.querySelector<HTMLInputElement>("input[name=territorios]");
   const seleccionTerritorios=new Set(parsearTerritorios(territoriosInput?.value??""));
+  const seleccionCuadras=new Set(Array.from(document.querySelectorAll<HTMLInputElement>("#assignment-block-options input:checked")).map((input)=>input.value));
+  const actualizarSelectorCuadras=()=>{
+    const contenedor=document.querySelector<HTMLElement>("#assignment-block-options");
+    if(!contenedor)return;
+    const disponibles=geometriasCuadras?.features?.filter((feature:any)=>seleccionTerritorios.has(Number(feature.properties?.territorioId)))??[];
+    const idsDisponibles=new Set(disponibles.map((feature:any)=>String(feature.properties.id)));
+    [...seleccionCuadras].forEach((id)=>{if(!idsDisponibles.has(id))seleccionCuadras.delete(id);});
+    contenedor.innerHTML=disponibles.length?disponibles.map((feature:any)=>{const id=String(feature.properties.id);return `<label><input type="checkbox" name="cuadraIds" value="${escaparHtml(id)}" ${seleccionCuadras.has(id)?"checked":""}><span>T${feature.properties.territorioId} · C${feature.properties.numero}</span></label>`;}).join(""):'<p>Elegí territorios para ver sus cuadras.</p>';
+  };
   const actualizarSelectorTerritorios=()=>{
     const ids=[...seleccionTerritorios].sort((a,b)=>a-b);
     if(territoriosInput)territoriosInput.value=ids.join(",");
@@ -845,13 +921,20 @@ function bindEvents() {
     const contador=document.querySelector<HTMLElement>("#territory-count");
     if(contador)contador.textContent=`${ids.length} ${ids.length===1?"seleccionado":"seleccionados"}`;
     document.querySelectorAll<HTMLButtonElement>("[data-territory-option]").forEach((boton)=>{const activo=seleccionTerritorios.has(Number(boton.dataset.territoryOption));boton.classList.toggle("selected",activo);boton.setAttribute("aria-pressed",String(activo));});
+    actualizarSelectorCuadras();
   };
   document.querySelectorAll<HTMLButtonElement>("[data-territory-option]").forEach((boton)=>boton.addEventListener("click",()=>{const id=Number(boton.dataset.territoryOption);if(seleccionTerritorios.has(id))seleccionTerritorios.delete(id);else seleccionTerritorios.add(id);actualizarSelectorTerritorios();}));
   document.querySelector("#territory-selection")?.addEventListener("click",(evento)=>{const boton=(evento.target as HTMLElement).closest<HTMLButtonElement>("[data-remove-territory]");if(!boton)return;seleccionTerritorios.delete(Number(boton.dataset.removeTerritory));actualizarSelectorTerritorios();});
   document.querySelector<HTMLInputElement>("#territory-filter")?.addEventListener("input",(evento)=>{const filtro=(evento.currentTarget as HTMLInputElement).value.replace(/\D/g,"");document.querySelectorAll<HTMLButtonElement>("[data-territory-option]").forEach((boton)=>boton.hidden=Boolean(filtro)&&!String(boton.dataset.territoryOption).includes(filtro));});
+  document.querySelector("#assignment-block-options")?.addEventListener("change",(evento)=>{const input=(evento.target as HTMLElement).closest<HTMLInputElement>("input[name=cuadraIds]");if(!input)return;if(input.checked)seleccionCuadras.add(input.value);else seleccionCuadras.delete(input.value);});
+  document.querySelector("#select-all-assignment-blocks")?.addEventListener("click",()=>{document.querySelectorAll<HTMLInputElement>("#assignment-block-options input[name=cuadraIds]").forEach((input)=>seleccionCuadras.add(input.value));actualizarSelectorCuadras();});
   actualizarSelectorTerritorios();
-  const actualizarCamposAsignacion=()=>{const tipo=tipoAsignacionSelect?.value;const encuentro=document.querySelector<HTMLTextAreaElement>("#assignment-form [name=puntoEncuentro]");const esSalida=tipo==="Salida";campoTerritorios?.classList.toggle("field-disabled",!esSalida);campoTerritorios?.querySelectorAll<HTMLInputElement|HTMLButtonElement>("input,button").forEach((control)=>control.disabled=!esSalida);if(encuentro){const sugerencias:Record<string,string>={Telefonica:"Zoom",Reunion:"Reunión","Sin salida":"No hay salida"};if(sugerencias[tipo??""])encuentro.value=sugerencias[tipo??""];else if(["Zoom","Reunión","No hay salida"].includes(encuentro.value))encuentro.value="";}};
+  const actualizarCamposAsignacion=()=>{const tipo=tipoAsignacionSelect?.value;const encuentro=document.querySelector<HTMLTextAreaElement>("#assignment-form [name=puntoEncuentro]");const esSalida=tipo==="Salida";[campoTerritorios,campoCuadras].forEach((campo)=>{campo?.classList.toggle("field-disabled",!esSalida);campo?.querySelectorAll<HTMLInputElement|HTMLButtonElement>("input,button").forEach((control)=>control.disabled=!esSalida);});if(encuentro){const sugerencias:Record<string,string>={Telefonica:"Zoom",Reunion:"Reunión","Sin salida":"No hay salida"};if(sugerencias[tipo??""])encuentro.value=sugerencias[tipo??""];else if(["Zoom","Reunión","No hay salida"].includes(encuentro.value))encuentro.value="";}};
   tipoAsignacionSelect?.addEventListener("change",actualizarCamposAsignacion);
+  actualizarCamposAsignacion();
+  document.querySelectorAll<HTMLButtonElement>("[data-edit-assignment]").forEach((boton)=>boton.addEventListener("click",()=>{asignacionEditandoId=boton.dataset.editAssignment??null;render();document.querySelector<HTMLDialogElement>("#assignment-dialog")?.showModal();}));
+  document.querySelectorAll<HTMLButtonElement>("[data-complete-assignment]").forEach((boton)=>boton.addEventListener("click",()=>{asignacionFinalizandoId=boton.dataset.completeAssignment??null;render();document.querySelector<HTMLDialogElement>("#complete-assignment-dialog")?.showModal();}));
+  document.querySelector(".completion-blocks")?.addEventListener("change",()=>{const todas=[...document.querySelectorAll<HTMLInputElement>(".completion-blocks input[name=cuadraId]")];const completas=todas.filter((input)=>input.checked).length;const cobertura=document.querySelector<HTMLInputElement>("#complete-assignment-form [name=cobertura]");if(cobertura&&todas.length)cobertura.value=String(Math.round(completas/todas.length*100));});
   document.querySelectorAll<HTMLButtonElement>("[data-delete-assignment]").forEach((boton)=>boton.addEventListener("click",async()=>{const id=boton.dataset.deleteAssignment;if(!id||!confirm("¿Eliminar esta salida del programa? Esta acción no se puede deshacer."))return;boton.disabled=true;try{await eliminarAsignacion(id);datosAplicacion.asignaciones=datosAplicacion.asignaciones.filter((item)=>item.id!==id);refrescarDatosLocales();render();document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();}catch(error){mostrarError(error);boton.disabled=false;}}));
   document.querySelector<HTMLSelectElement>("#request-scope")?.addEventListener("change",(event)=>{const seleccion=(event.currentTarget as HTMLSelectElement).value;const fieldset=document.querySelector<HTMLFieldSetElement>("#request-blocks");if(fieldset)fieldset.disabled=seleccion==="Territorio completo";});
   document.querySelectorAll<HTMLButtonElement>("[data-request-approve]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await resolverSolicitud(boton.dataset.requestApprove!,"Aprobada");refrescarDatosLocales();render();}catch(error){mostrarError(error);}}));
@@ -859,7 +942,55 @@ function bindEvents() {
   document.querySelectorAll<HTMLButtonElement>("[data-request-close]").forEach((boton)=>boton.addEventListener("click",async()=>{try{await cerrarSolicitud(boton.dataset.requestId!,boton.dataset.requestClose as "Completada"|"Cancelada");refrescarDatosLocales();render();}catch(error){mostrarError(error);}}));
   document.querySelector("#toggle-campaign-complete")?.addEventListener("click",async()=>{const campana=datosAplicacion.campanas.find((item)=>item.activa);if(!campana)return;const completados=campana.completados.includes(seleccionado)?campana.completados.filter((id)=>id!==seleccionado):[...campana.completados,seleccionado];try{await actualizarCampana({...campana,completados});refrescarDatosLocales();render();}catch(error){mostrarError(error);}});
   document.querySelector<HTMLFormElement>("#record-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const submit=form.querySelector<HTMLButtonElement>("button[type=submit]");if(submit)submit.disabled=true;try{await guardarRegistro({fecha:String(data.get("fecha")),territorioId:Number(data.get("territorioId")),hermanos:Number(data.get("hermanos")),modalidad:String(data.get("modalidad")) as Modalidad,cobertura:Number(data.get("cobertura")),revisitas:Number(data.get("revisitas")),cursos:Number(data.get("cursos")),observacion:String(data.get("observacion")||"")});seleccionado=Number(data.get("territorioId"));panelActivo="estadisticas";dialog?.close();refrescarDatosLocales();render();}catch(error){mostrarError(error);if(submit)submit.disabled=false;}});
-  document.querySelector<HTMLFormElement>("#assignment-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const tipo=String(data.get("tipo")) as NonNullable<Asignacion["tipo"]>;try{const territorioIds=tipo==="Salida"?parsearTerritorios(String(data.get("territorios")||"")):[];if(tipo==="Salida"&&!territorioIds.length)return alert("Ingresá al menos un territorio.");const fecha=String(data.get("fecha"));await guardarAsignacion({...(territorioIds.length?{territorioId:territorioIds[0],territorioIds}:{}),fecha,hora:String(data.get("hora")),grupo:String(data.get("grupo")||""),puntoEncuentro:String(data.get("puntoEncuentro")||""),encargado:String(data.get("encargado")||""),tipo,estado:"Programada"});semanaPrograma=rangoSemana(new Date(`${fecha}T12:00:00`)).desde;form.closest("dialog")?.close();refrescarDatosLocales();render();document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();}catch(error){mostrarError(error);}});
+  document.querySelector<HTMLFormElement>("#assignment-form")?.addEventListener("submit",async e=>{
+    e.preventDefault();
+    const form=e.currentTarget as HTMLFormElement;
+    const data=new FormData(form);
+    const tipo=String(data.get("tipo")) as NonNullable<Asignacion["tipo"]>;
+    const submit=form.querySelector<HTMLButtonElement>("button[type=submit]");
+    try{
+      const territorioIds=tipo==="Salida"?parsearTerritorios(String(data.get("territorios")||"")):[];
+      if(tipo==="Salida"&&!territorioIds.length)return alert("Ingresá al menos un territorio.");
+      submit?.setAttribute("disabled","");
+      const fecha=String(data.get("fecha"));
+      const anterior=asignacionEditandoId?datosAplicacion.asignaciones.find((item)=>item.id===asignacionEditandoId):undefined;
+      const cuadraIds=geometriasCuadras?data.getAll("cuadraIds").map(String):(anterior?.cuadraIds??[]);
+      const base:Omit<Asignacion,"id">={...(territorioIds.length?{territorioId:territorioIds[0],territorioIds,cuadraIds}:{}),fecha,hora:String(data.get("hora")),grupo:String(data.get("grupo")||""),puntoEncuentro:String(data.get("puntoEncuentro")||""),encargado:String(data.get("encargado")||""),tipo,estado:"Programada"};
+      let guardada:Asignacion;
+      if(anterior){const {territorioId:_territorioId,territorioIds:_territorioIds,cuadraIds:_cuadraIds,...sinTerritorio}=anterior;guardada=await actualizarAsignacion({...sinTerritorio,...base,id:anterior.id});}
+      else guardada=await guardarAsignacion(base);
+      datosAplicacion.asignaciones=[...datosAplicacion.asignaciones.filter((item)=>item.id!==guardada.id),guardada];
+      semanaPrograma=rangoSemana(new Date(`${fecha}T12:00:00`)).desde;
+      asignacionEditandoId=null;
+      form.closest("dialog")?.close();
+      refrescarDatosLocales();
+      render();
+      document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();
+    }catch(error){mostrarError(error);if(submit)submit.disabled=false;}
+  });
+  document.querySelector<HTMLFormElement>("#complete-assignment-form")?.addEventListener("submit",async e=>{
+    e.preventDefault();
+    const form=e.currentTarget as HTMLFormElement;
+    const data=new FormData(form);
+    const asignacion=asignacionFinalizandoId?datosAplicacion.asignaciones.find((item)=>item.id===asignacionFinalizandoId):undefined;
+    if(!asignacion)return;
+    const territorioIds=territoriosAsignacion(asignacion);
+    if(!territorioIds.length)return alert("La salida no tiene territorios asociados.");
+    const submit=form.querySelector<HTMLButtonElement>("button[type=submit]");
+    submit?.setAttribute("disabled","");
+    try{
+      const cuadraIds=data.getAll("cuadraId").map(String);
+      const registro=await completarAsignacion(asignacion.id,{fecha:String(data.get("fecha")),territorioId:territorioIds[0],territorioIds,cuadraIds,hermanos:Number(data.get("hermanos")),modalidad:String(data.get("modalidad")) as Modalidad,cobertura:Number(data.get("cobertura")),revisitas:Number(data.get("revisitas")),cursos:Number(data.get("cursos")),observacion:String(data.get("observacion")||"")},cuadraIds);
+      datosAplicacion.asignaciones=datosAplicacion.asignaciones.map((item)=>item.id===asignacion.id?{...item,estado:"Completada",completadaEn:new Date().toISOString()}:item);
+      datosAplicacion.registros=[...datosAplicacion.registros.filter((item)=>item.id!==registro.id),registro];
+      asignacionFinalizandoId=null;
+      seleccionado=territorioIds[0];
+      form.closest("dialog")?.close();
+      refrescarDatosLocales();
+      render();
+      document.querySelector<HTMLDialogElement>("#program-dialog")?.showModal();
+    }catch(error){mostrarError(error);if(submit)submit.disabled=false;}
+  });
   document.querySelector<HTMLFormElement>("#campaign-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const desde=String(data.get("desde"));const hasta=String(data.get("hasta"));if(hasta<desde)return alert("La fecha de finalización debe ser posterior al inicio.");try{await guardarCampana({nombre:String(data.get("nombre")),desde,hasta,territorioIds:Array.from({length:96},(_,i)=>i+1),completados:[],activa:true});form.closest("dialog")?.close();modoCampana=true;refrescarDatosLocales();render();}catch(error){mostrarError(error);}});
   document.querySelector<HTMLFormElement>("#request-form")?.addEventListener("submit",async e=>{e.preventDefault();const form=e.currentTarget as HTMLFormElement;const data=new FormData(form);const alcance=String(data.get("alcance")) as AlcanceSolicitud;const todas=geometriasCuadras?.features?.filter((item:any)=>Number(item.properties?.territorioId)===seleccionado).map((item:any)=>String(item.properties.id))??[];const elegidas=alcance==="Territorio completo"?todas:data.getAll("cuadraId").map(String);const desde=String(data.get("desde"));const hasta=String(data.get("hasta"));if(!elegidas.length)return alert("Elegí al menos una cuadra.");if(hasta<desde)return alert("La fecha final debe ser posterior al inicio.");try{await crearSolicitud({territorioId:seleccionado,cuadraIds:elegidas,alcance,desde,hasta,modalidad:String(data.get("modalidad")) as Modalidad,aliasPrivado:String(data.get("aliasPrivado")),observacion:String(data.get("observacion")||"")});form.closest("dialog")?.close();refrescarDatosLocales();panelActivo="planificacion";render();}catch(error){mostrarError(error);}});
   document.querySelector<HTMLSelectElement>("#coverage-mode")?.addEventListener("change",async(event)=>{const modo=(event.currentTarget as HTMLSelectElement).value as ConfiguracionOperacion["modoCobertura"];const campana=datosAplicacion.campanas.find((item)=>item.activa);if(modo==="Campaña"&&!campana){alert("Primero creá una campaña activa.");render();return;}const coberturaDesde=modo==="Mensual"?new Date(HOY.getFullYear(),HOY.getMonth(),1,12).toISOString().slice(0,10):modo==="Campaña"?campana!.desde:configuracionCobertura().coberturaDesde;try{await guardarConfiguracion({id:"operacion",modoCobertura:modo,coberturaDesde,actualizadaEn:new Date().toISOString()});refrescarDatosLocales();render();}catch(error){mostrarError(error);}});

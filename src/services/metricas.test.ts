@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { diasTranscurridos, diferenciaPorcentual, perteneceAlMes, promedio } from "./metricas";
+import { diasTranscurridos, diferenciaPorcentual, perteneceAlMes, promedio, territoriosDeRegistro } from "./metricas";
 import type { RegistroSalida } from "../types/domain";
 
 const registro = (fecha: string): RegistroSalida => ({
@@ -36,5 +36,10 @@ describe("métricas territoriales", () => {
     const hoy = new Date(2026, 8, 28, 12);
     expect(diasTranscurridos("2026-09-21", hoy)).toBe(7);
     expect(diasTranscurridos("2026-10-01", hoy)).toBe(0);
+  });
+
+  it("reconoce varios territorios sin romper registros anteriores", () => {
+    expect(territoriosDeRegistro(registro("2026-09-10"))).toEqual([1]);
+    expect(territoriosDeRegistro({ ...registro("2026-09-10"), territorioIds: [1, 2, 3] })).toEqual([1, 2, 3]);
   });
 });

@@ -50,6 +50,36 @@ export function guardarAsignacionLocal(asignacion: Omit<Asignacion, "id">) {
   return nueva;
 }
 
+export function actualizarAsignacionLocal(asignacion: Asignacion) {
+  const datos = obtenerDatosLocales();
+  if (!datos.asignaciones.some((item) => item.id === asignacion.id)) throw new Error("La salida ya no existe.");
+  const actualizada = { ...asignacion, actualizadoEn: new Date().toISOString(), demo: false };
+  datos.asignaciones = datos.asignaciones.map((item) => item.id === asignacion.id ? actualizada : item);
+  guardarDatosLocales(datos);
+  return actualizada;
+}
+
+export function completarAsignacionLocal(asignacionId: string, registro: Omit<RegistroSalida, "id">, cuadrasCompletadas: string[]) {
+  const datos = obtenerDatosLocales();
+  const asignacion = datos.asignaciones.find((item) => item.id === asignacionId);
+  if (!asignacion) throw new Error("La salida ya no existe.");
+  if (asignacion.estado !== "Programada") throw new Error("La salida ya fue finalizada.");
+  const ahora = new Date().toISOString();
+  const nuevo: RegistroSalida = { ...registro, id: crypto.randomUUID(), asignacionId, demo: false, creadoEn: ahora };
+  datos.registros.push(nuevo);
+  asignacion.estado = "Completada";
+  asignacion.completadaEn = ahora;
+  cuadrasCompletadas.forEach((id) => {
+    const featureTerritorio = Number(id.match(/^T(\d+)-/)?.[1] ?? registro.territorioId);
+    const anterior = datos.progresoCuadras.find((item) => item.id === id);
+    const evento = { estado: "Completada" as const, fecha: registro.fecha, registradoEn: ahora };
+    const progreso: ProgresoCuadra = { id, territorioId: featureTerritorio, estado: "Completada", fecha: registro.fecha, actualizadoEn: ahora, historial: [...(anterior?.historial ?? []), evento].slice(-12) };
+    datos.progresoCuadras = [...datos.progresoCuadras.filter((item) => item.id !== id), progreso];
+  });
+  guardarDatosLocales(datos);
+  return nuevo;
+}
+
 export function eliminarAsignacionLocal(id: string) {
   const datos = obtenerDatosLocales();
   const cantidadAnterior = datos.asignaciones.length;

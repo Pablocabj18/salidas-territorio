@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { SolicitudTerritorio } from "../types/domain";
 import {
+  actualizarAsignacionLocal,
   actualizarCuadraLocal,
   cerrarSolicitudLocal,
   crearSolicitudLocal,
+  completarAsignacionLocal,
   eliminarAsignacionLocal,
   guardarAsignacionLocal,
   obtenerDatosLocales,
@@ -74,5 +76,40 @@ describe("solicitudes y seguimiento local", () => {
 
     eliminarAsignacionLocal(salida.id);
     expect(obtenerDatosLocales().asignaciones.some((item) => item.id === salida.id)).toBe(false);
+  });
+
+  it("edita y finaliza una salida sin duplicar el apoyo de varios territorios", () => {
+    const salida = guardarAsignacionLocal({
+      territorioId: 21,
+      territorioIds: [21, 31],
+      cuadraIds: ["T21-C01", "T31-C01"],
+      fecha: "2026-09-30",
+      hora: "09:30",
+      grupo: "Grupo 1",
+      puntoEncuentro: "Lugar inicial",
+      encargado: "Encargado",
+      tipo: "Salida",
+      estado: "Programada",
+    });
+    actualizarAsignacionLocal({ ...salida, puntoEncuentro: "Lugar corregido" });
+    completarAsignacionLocal(salida.id, {
+      fecha: "2026-09-30",
+      territorioId: 21,
+      territorioIds: [21, 31],
+      cuadraIds: ["T21-C01"],
+      hermanos: 6,
+      modalidad: "Casa en casa",
+      cobertura: 50,
+      revisitas: 2,
+      cursos: 1,
+      observacion: "Salida finalizada",
+    }, ["T21-C01"]);
+
+    const datos = obtenerDatosLocales();
+    expect(datos.asignaciones.find((item) => item.id === salida.id)?.estado).toBe("Completada");
+    expect(datos.asignaciones.find((item) => item.id === salida.id)?.puntoEncuentro).toBe("Lugar corregido");
+    expect(datos.registros.filter((item) => item.asignacionId === salida.id)).toHaveLength(1);
+    expect(datos.registros.find((item) => item.asignacionId === salida.id)?.territorioIds).toEqual([21, 31]);
+    expect(datos.progresoCuadras.find((item) => item.id === "T21-C01")?.estado).toBe("Completada");
   });
 });

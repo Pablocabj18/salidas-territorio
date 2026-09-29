@@ -4,10 +4,12 @@ import firebaseConfig, { firebaseConfigurado } from "../config/firebase";
 import type { Asignacion, Campana, ConfiguracionOperacion, DatosAplicacion, EstadoCuadra, EstadoDatos, ProgresoCuadra, RegistroSalida, ReservaTerritorial, SolicitudTerritorio, UsuarioSesion } from "../types/domain";
 import { preferirRedireccionAuth } from "../utils/auth";
 import {
+  actualizarAsignacionLocal,
   actualizarCampanaLocal,
   actualizarCuadraLocal,
   cerrarSolicitudLocal,
   crearSolicitudLocal,
+  completarAsignacionLocal,
   eliminarAsignacionLocal,
   guardarAsignacionLocal,
   guardarCampanaLocal,
@@ -174,6 +176,42 @@ export async function guardarAsignacion(asignacion: Omit<Asignacion, "id">) {
   const nueva = { ...asignacion, id, demo: false, creadoPor: usuarioActual!.uid, creadoEn: new Date().toISOString() };
   await firestoreSdk.setDoc(firestoreSdk.doc(firestore, "asignaciones", id), nueva);
   return nueva;
+}
+
+export async function actualizarAsignacion(asignacion: Asignacion) {
+  if (!firebaseConfigurado) return actualizarAsignacionLocal(asignacion);
+  const firestore = exigirAdmin();
+  if (!firestoreSdk) throw new Error("La sincronización todavía no está lista.");
+  const actualizada = { ...asignacion, actualizadoEn: new Date().toISOString(), demo: false };
+  await firestoreSdk.setDoc(firestoreSdk.doc(firestore, "asignaciones", asignacion.id), actualizada);
+  return actualizada;
+}
+
+export async function completarAsignacion(asignacionId: string, registro: Omit<RegistroSalida, "id">, cuadrasCompletadas: string[]) {
+  if (!firebaseConfigurado) return completarAsignacionLocal(asignacionId, registro, cuadrasCompletadas);
+  const firestore = exigirAdmin();
+  if (!firestoreSdk) throw new Error("La sincronización todavía no está lista.");
+  const ahora = new Date().toISOString();
+  const registroId = crypto.randomUUID();
+  const nuevo: RegistroSalida = { ...registro, id: registroId, asignacionId, demo: false, creadoPor: usuarioActual!.uid, creadoEn: ahora };
+  const asignacionRef = firestoreSdk.doc(firestore, "asignaciones", asignacionId);
+  const progresoRefs = cuadrasCompletadas.map((id) => firestoreSdk!.doc(firestore, "progresoCuadras", id));
+  await firestoreSdk.runTransaction(firestore, async (transaction) => {
+    const [asignacionSnap, ...progresoSnaps] = await Promise.all([transaction.get(asignacionRef), ...progresoRefs.map((referencia) => transaction.get(referencia))]);
+    if (!asignacionSnap.exists()) throw new Error("La salida ya no existe.");
+    if (asignacionSnap.data().estado !== "Programada") throw new Error("La salida ya fue finalizada.");
+    transaction.update(asignacionRef, { estado: "Completada", completadaEn: ahora, actualizadoEn: ahora });
+    transaction.set(firestoreSdk!.doc(firestore, "registros", registroId), nuevo);
+    progresoRefs.forEach((referencia, indice) => {
+      const id = cuadrasCompletadas[indice];
+      const anterior = progresoSnaps[indice].data() as ProgresoCuadra | undefined;
+      const territorioId = Number(id.match(/^T(\d+)-/)?.[1] ?? registro.territorioId);
+      const evento = { estado: "Completada" as const, fecha: registro.fecha, registradoEn: ahora };
+      const progreso: ProgresoCuadra = { id, territorioId, estado: "Completada", fecha: registro.fecha, actualizadoPor: usuarioActual!.uid, actualizadoEn: ahora, historial: [...(anterior?.historial ?? []), evento].slice(-12) };
+      transaction.set(referencia, progreso);
+    });
+  });
+  return nuevo;
 }
 
 export async function guardarCampana(campana: Omit<Campana, "id">) {
