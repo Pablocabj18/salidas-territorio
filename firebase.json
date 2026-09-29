@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "territorios-oeste-sf",
     "public": "dist",
     "ignore": [
       "firebase.json",

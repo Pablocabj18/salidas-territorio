@@ -220,7 +220,7 @@ function render() {
       </nav>
       <div class="header-actions">
         <button id="data-status" class="sync-pill ${estadoDatos.conectado ? "online" : "offline"}" title="${estadoDatos.mensaje}"><i></i>${estadoDatos.modo === "firebase" ? (estadoDatos.conectado ? "Sincronizado" : "Sin conexión") : "Demo local"}</button>
-        ${firebaseConfigurado ? (usuario ? `<button id="auth-action" class="account-button" title="${escaparHtml(usuario.email)}">${usuario.foto ? `<img src="${escaparHtml(usuario.foto)}" alt="">` : "👤"}<span>${usuario.rol === "administrador" ? "Admin" : "Lectura"}</span></button>` : '<button id="auth-action" class="account-button logged-out" aria-label="Ingresar con Google"><b class="google-mark" aria-hidden="true">G</b><span>Ingresar</span></button>') : ""}
+        ${firebaseConfigurado ? (usuario ? `<button id="auth-action" class="account-button" title="Cuenta de ${usuario.rol === "administrador" ? "administración" : "lectura"}">${usuario.foto ? `<img src="${escaparHtml(usuario.foto)}" alt="">` : "👤"}<span>${usuario.rol === "administrador" ? "Admin" : "Lectura"}</span></button>` : '<button id="auth-action" class="account-button logged-out" aria-label="Ingresar con Google"><b class="google-mark" aria-hidden="true">G</b><span>Ingresar</span></button>') : ""}
         <button id="new-record-top" class="header-primary" aria-label="Registrar salida" ${puedeEditar ? "" : "disabled"}>+ Registrar salida</button>
       </div>
     </header>

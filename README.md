@@ -1,6 +1,8 @@
-# Territorios San Francisco
+# Territorios Oeste
 
 Aplicación web para explorar, planificar y medir los 96 territorios asignados de San Francisco, Córdoba.
+
+Sitio público: https://territorios-oeste-sf.web.app
 
 ## Qué incluye
 
@@ -39,7 +41,7 @@ Sin configuración de Firebase funciona en modo demostración y guarda los cambi
 
 ## Datos compartidos con Firebase
 
-La aplicación está conectada al proyecto `salidas-territorio-pablo`. Usa Firestore en `southamerica-east1`, Authentication con Google y el plan gratuito Spark. La configuración pública de la aplicación web está incluida como valor predeterminado en `src/config/firebase.ts`; se puede reemplazar mediante variables `VITE_FIREBASE_*` para otro entorno.
+La aplicación usa Firestore en `southamerica-east1`, Authentication con Google y el plan gratuito Spark. La configuración pública de la aplicación web está incluida como valor predeterminado en `src/config/firebase.ts`; se puede reemplazar mediante variables `VITE_FIREBASE_*` para otro entorno.
 
 Para republicar las reglas:
 
