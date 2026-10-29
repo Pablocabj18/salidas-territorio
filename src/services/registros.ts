@@ -126,6 +126,8 @@ export function resolverSolicitudLocal(id: string, estado: "Aprobada" | "Rechaza
   if (estado === "Aprobada" && ocupadas.length) throw new Error("Una o más cuadras ya están reservadas.");
   solicitud.estado = estado;
   solicitud.resueltoEn = new Date().toISOString();
+  // Igual que en Firestore: una reserva por cuadra, que reemplaza a la vencida.
+  if (estado === "Aprobada") datos.reservas = datos.reservas.filter((item) => !solicitud.cuadraIds.includes(item.cuadraId));
   if (estado === "Aprobada") datos.reservas.push(...solicitud.cuadraIds.map((cuadraId): ReservaTerritorial => ({ id: cuadraId, solicitudId:id, territorioId:solicitud.territorioId, cuadraId, desde:solicitud.desde, hasta:solicitud.hasta, estado:"Reservada" })));
   guardarDatosLocales(datos);
 }

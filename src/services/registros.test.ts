@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SolicitudTerritorio } from "../types/domain";
 import {
   actualizarAsignacionLocal,
@@ -38,7 +38,12 @@ function solicitud(id: string, cuadras: string[]): SolicitudTerritorio {
 }
 
 describe("solicitudes y seguimiento local", () => {
-  beforeEach(() => memoria.clear());
+  beforeEach(() => {
+    memoria.clear();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-28T12:00:00.000Z"));
+  });
+  afterEach(() => vi.useRealTimers());
 
   it("reserva todas las cuadras juntas y evita cruces", () => {
     crearSolicitudLocal(solicitud("s1", ["T36-C01", "T36-C02"]));
@@ -51,6 +56,19 @@ describe("solicitudes y seguimiento local", () => {
     cerrarSolicitudLocal("s1", "Completada");
     resolverSolicitudLocal("s2", "Aprobada");
     expect(obtenerDatosLocales().reservas.map((item) => item.cuadraId)).toEqual(["T36-C02", "T36-C03"]);
+  });
+
+  it("reemplaza una reserva vencida sin duplicar la cuadra", () => {
+    crearSolicitudLocal(solicitud("s1", ["T36-C01", "T36-C02"]));
+    resolverSolicitudLocal("s1", "Aprobada");
+
+    vi.setSystemTime(new Date("2026-10-10T12:00:00.000Z"));
+    crearSolicitudLocal({ ...solicitud("s2", ["T36-C02"]), desde: "2026-10-10", hasta: "2026-10-17" });
+    resolverSolicitudLocal("s2", "Aprobada");
+
+    const reservas = obtenerDatosLocales().reservas;
+    expect(reservas.filter((item) => item.cuadraId === "T36-C02").map((item) => item.solicitudId)).toEqual(["s2"]);
+    expect(reservas.find((item) => item.cuadraId === "T36-C01")?.solicitudId).toBe("s1");
   });
 
   it("conserva el historial incluso al volver a pendiente", () => {

@@ -30,6 +30,8 @@ jobs:
           cache: npm
       - name: Instalar dependencias
         run: npm ci
+      - name: Ejecutar pruebas
+        run: npm test
       - name: Construir sitio
         run: npm run build
         env:
